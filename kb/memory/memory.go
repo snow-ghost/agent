@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/snow-ghost/agent/core"
 )
@@ -22,18 +25,52 @@ type KnowledgeBase interface {
 
 // Registry is an in-memory implementation of KnowledgeBase
 type Registry struct {
-	skills []core.Skill
+	skills        []core.Skill
+	hypothesesDir string
+}
+
+// HypothesisMetadata represents metadata for a saved hypothesis
+type HypothesisMetadata struct {
+	ID       string            `json:"id"`
+	Source   string            `json:"source"`
+	Lang     string            `json:"lang"`
+	Meta     map[string]string `json:"meta"`
+	Quality  float64           `json:"quality"`
+	SavedAt  time.Time         `json:"saved_at"`
+	Domain   string            `json:"domain"`
+	Keywords []string          `json:"keywords"`
 }
 
 // NewRegistry creates a new in-memory knowledge base registry
 func NewRegistry() *Registry {
 	registry := &Registry{
-		skills: make([]core.Skill, 0),
+		skills:        make([]core.Skill, 0),
+		hypothesesDir: "./hypotheses",
 	}
 
 	// Register built-in skills
 	registry.RegisterSkill(&SortSkill{})
 	registry.RegisterSkill(&ReverseSkill{})
+
+	// Load saved hypotheses
+	registry.LoadHypotheses()
+
+	return registry
+}
+
+// NewRegistryWithDir creates a registry with a custom hypotheses directory
+func NewRegistryWithDir(hypothesesDir string) *Registry {
+	registry := &Registry{
+		skills:        make([]core.Skill, 0),
+		hypothesesDir: hypothesesDir,
+	}
+
+	// Register built-in skills
+	registry.RegisterSkill(&SortSkill{})
+	registry.RegisterSkill(&ReverseSkill{})
+
+	// Load saved hypotheses
+	registry.LoadHypotheses()
 
 	return registry
 }
@@ -94,9 +131,169 @@ func (r *Registry) Find(task core.Task) []core.Skill {
 	return out
 }
 
-// SaveHypothesis is a no-op for in-memory KB in MVP.
+// SaveHypothesis saves a successful hypothesis to disk
 func (r *Registry) SaveHypothesis(ctx context.Context, h core.Hypothesis, quality float64) error {
+	// Create hypotheses directory if it doesn't exist
+	if err := os.MkdirAll(r.hypothesesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hypotheses directory: %w", err)
+	}
+
+	// Create metadata
+	metadata := HypothesisMetadata{
+		ID:       h.ID,
+		Source:   h.Source,
+		Lang:     h.Lang,
+		Meta:     h.Meta,
+		Quality:  quality,
+		SavedAt:  time.Now(),
+		Domain:   "general", // Default domain, could be extracted from task
+		Keywords: []string{"saved", "hypothesis"},
+	}
+
+	// Save metadata as JSON
+	metadataFile := filepath.Join(r.hypothesesDir, h.ID+".meta.json")
+	metadataData, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+	if err := os.WriteFile(metadataFile, metadataData, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata file: %w", err)
+	}
+
+	// Save bytecode
+	bytecodeFile := filepath.Join(r.hypothesesDir, h.ID+".wasm")
+	if err := os.WriteFile(bytecodeFile, h.Bytes, 0644); err != nil {
+		return fmt.Errorf("failed to write bytecode file: %w", err)
+	}
+
+	// Register as a skill
+	skill := &SavedHypothesisSkill{
+		hypothesis: h,
+		metadata:   metadata,
+	}
+	r.RegisterSkill(skill)
+
 	return nil
+}
+
+// LoadHypotheses loads saved hypotheses from disk
+func (r *Registry) LoadHypotheses() error {
+	// Check if hypotheses directory exists
+	if _, err := os.Stat(r.hypothesesDir); os.IsNotExist(err) {
+		return nil // No hypotheses to load
+	}
+
+	// Read all .meta.json files
+	entries, err := os.ReadDir(r.hypothesesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read hypotheses directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".meta.json") {
+			continue
+		}
+
+		// Load metadata
+		metadataFile := filepath.Join(r.hypothesesDir, entry.Name())
+		metadataData, err := os.ReadFile(metadataFile)
+		if err != nil {
+			continue // Skip corrupted files
+		}
+
+		var metadata HypothesisMetadata
+		if err := json.Unmarshal(metadataData, &metadata); err != nil {
+			continue // Skip corrupted files
+		}
+
+		// Load bytecode
+		bytecodeFile := filepath.Join(r.hypothesesDir, metadata.ID+".wasm")
+		bytecode, err := os.ReadFile(bytecodeFile)
+		if err != nil {
+			continue // Skip if bytecode is missing
+		}
+
+		// Create hypothesis
+		hypothesis := core.Hypothesis{
+			ID:     metadata.ID,
+			Source: metadata.Source,
+			Lang:   metadata.Lang,
+			Bytes:  bytecode,
+			Meta:   metadata.Meta,
+		}
+
+		// Register as skill
+		skill := &SavedHypothesisSkill{
+			hypothesis: hypothesis,
+			metadata:   metadata,
+		}
+		r.RegisterSkill(skill)
+	}
+
+	return nil
+}
+
+// SavedHypothesisSkill wraps a saved hypothesis as a skill
+type SavedHypothesisSkill struct {
+	hypothesis core.Hypothesis
+	metadata   HypothesisMetadata
+}
+
+func (s *SavedHypothesisSkill) Name() string {
+	return "saved/" + s.hypothesis.ID
+}
+
+func (s *SavedHypothesisSkill) Domain() string {
+	return s.metadata.Domain
+}
+
+func (s *SavedHypothesisSkill) CanSolve(task core.Task) (bool, float64) {
+	// Simple matching: check if domain matches and task has similar properties
+	if s.metadata.Domain != "general" && s.metadata.Domain != task.Domain {
+		return false, 0.0
+	}
+
+	// Check if task properties match saved hypothesis keywords
+	for _, keyword := range s.metadata.Keywords {
+		if strings.Contains(strings.ToLower(task.Spec.Props["type"]), strings.ToLower(keyword)) {
+			return true, s.metadata.Quality
+		}
+	}
+
+	// Default: accept if domain matches
+	return s.metadata.Domain == "general" || s.metadata.Domain == task.Domain, s.metadata.Quality
+}
+
+func (s *SavedHypothesisSkill) Execute(ctx context.Context, task core.Task) (core.Result, error) {
+	// For saved hypotheses, we need to execute the WASM bytecode
+	// This is a simplified implementation - in practice, you'd use the interpreter
+
+	// Parse input
+	var inputData interface{}
+	if err := json.Unmarshal(task.Input, &inputData); err != nil {
+		return core.Result{Success: false}, fmt.Errorf("failed to parse input: %w", err)
+	}
+
+	// For now, return a mock result indicating the hypothesis was found
+	// In a real implementation, this would execute the WASM bytecode
+	result := core.Result{
+		Success: true,
+		Score:   s.metadata.Quality,
+		Output:  task.Input, // Echo the input for now
+		Logs:    fmt.Sprintf("Executed saved hypothesis %s", s.hypothesis.ID),
+		Metrics: map[string]float64{
+			"hypothesis_quality": s.metadata.Quality,
+			"source":             1.0, // Saved hypothesis
+		},
+	}
+
+	return result, nil
+}
+
+func (s *SavedHypothesisSkill) Tests() []core.TestCase {
+	// Return empty tests for saved hypotheses
+	// In practice, you might want to save and restore test cases too
+	return []core.TestCase{}
 }
 
 // SortSkill implements sorting of number arrays
@@ -128,7 +325,8 @@ func (s *SortSkill) CanSolve(task core.Task) (bool, float64) {
 	for _, keyword := range keywords {
 		lower := strings.ToLower(keyword)
 		if strings.Contains(lower, "sort") || strings.Contains(lower, "order") ||
-			strings.Contains(lower, "arrange") || strings.Contains(lower, "sequence") {
+			strings.Contains(lower, "arrange") || strings.Contains(lower, "sequence") ||
+			strings.Contains(lower, "numbers") {
 			return true, 0.9 // High confidence for sorting tasks
 		}
 	}

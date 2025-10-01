@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	llmmock "github.com/snow-ghost/agent/llm/mock"
 )
 
 type Solver struct {
@@ -41,8 +42,22 @@ func (s *Solver) Solve(ctx context.Context, task core.Task) (core.Result, error)
 		slog.ErrorContext(ctx, "LLM proposal failed", "error", err)
 		return core.Result{Success: false}, err
 	}
-	h := core.Hypothesis{ID: "llm-0", Source: "llm", Lang: "wasm", Bytes: []byte(algo), Meta: map[string]string{"criteria": "set"}}
-	slog.InfoContext(ctx, "LLM proposal received", "tests_count", len(tests))
+
+	// Convert algorithm string to WASM bytecode
+	var wasmBytes []byte
+	if mockLLM, ok := s.LLM.(*llmmock.MockLLM); ok {
+		wasmBytes, err = mockLLM.GetWASMModule(algo)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to get WASM module", "error", err)
+			return core.Result{Success: false}, err
+		}
+	} else {
+		// For other LLM implementations, assume algo is already bytecode
+		wasmBytes = []byte(algo)
+	}
+
+	h := core.Hypothesis{ID: "llm-0", Source: "llm", Lang: "wasm", Bytes: wasmBytes, Meta: map[string]string{"criteria": "set"}}
+	slog.InfoContext(ctx, "LLM proposal received", "tests_count", len(tests), "wasm_size", len(wasmBytes))
 
 	// 3) Evolutionary mini-cycle
 	best := h
@@ -70,5 +85,15 @@ func (s *Solver) Solve(ctx context.Context, task core.Task) (core.Result, error)
 			}
 		}
 	}
+
+	// If we found a good hypothesis, try to execute it and save it
+	if bestScore > 0 {
+		res, err := s.Interp.Execute(ctx, best, task)
+		if err == nil && res.Success {
+			_ = s.KB.SaveHypothesis(ctx, best, bestScore)
+			return res, nil
+		}
+	}
+
 	return core.Result{Success: false}, nil
 }
