@@ -6,9 +6,9 @@ services:
     build: .
     command: ["./router"]
     ports:
-      - "8080:8080"
+      - "8083:8083"
     environment:
-      - ROUTER_PORT=8080
+      - ROUTER_PORT=8083
       - LIGHT_WORKER_URL=http://light-worker:8081
       - HEAVY_WORKER_URL=http://heavy-worker:8082
     depends_on:
@@ -18,7 +18,7 @@ services:
       - agent-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -26,7 +26,7 @@ services:
   # Light worker - KB-only processing
   light-worker:
     build: .
-    command: ["./worker"]
+    command: ["./worker-bin"]
     ports:
       - "8081:8081"
     environment:
@@ -48,7 +48,7 @@ services:
   # Heavy worker - LLM+WASM processing
   heavy-worker:
     build: .
-    command: ["./worker"]
+    command: ["./worker-bin"]
     ports:
       - "8082:8082"
     environment:

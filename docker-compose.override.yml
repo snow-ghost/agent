@@ -9,7 +9,7 @@ services:
       - .:/app/src:ro  # Mount source for development
     environment:
       - LOG_LEVEL=debug
-    command: ["./worker"]
+    command: ["./worker-bin"]
 
   heavy-worker:
     volumes:
@@ -17,7 +17,7 @@ services:
       - .:/app/src:ro  # Mount source for development
     environment:
       - LOG_LEVEL=debug
-    command: ["./worker"]
+    command: ["./worker-bin"]
 
   router:
     volumes:

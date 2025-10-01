@@ -3,7 +3,6 @@
 .gitignore
 
 # Build artifacts
-worker
 router
 worker-bin
 *.exe

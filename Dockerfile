@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine3.22 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -17,11 +17,11 @@ RUN go mod download
 COPY . .
 
 # Build binaries
-RUN go build -o worker ./cmd/worker
+RUN go build -o worker-bin ./cmd/worker
 RUN go build -o router ./cmd/router
 
 # Runtime stage
-FROM alpine:3.18
+FROM alpine:3.22
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata
@@ -33,7 +33,7 @@ RUN adduser -D -s /bin/sh agent
 WORKDIR /app
 
 # Copy binaries from builder stage
-COPY --from=builder /app/worker /app/worker
+COPY --from=builder /app/worker-bin /app/worker-bin
 COPY --from=builder /app/router /app/router
 
 # Create hypotheses directory
@@ -46,4 +46,4 @@ USER agent
 EXPOSE 8080 8081 8082
 
 # Default command (can be overridden)
-CMD ["./worker"]
+CMD ["./worker-bin"]
