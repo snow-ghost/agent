@@ -57,6 +57,13 @@ type Task struct {
 	Input     json.RawMessage
 	Budget    Budget
 	CreatedAt time.Time
+	Flags     TaskFlags // routing and processing flags
+}
+
+// TaskFlags contains flags for task routing and processing
+type TaskFlags struct {
+	RequiresSandbox bool `json:"requires_sandbox"` // requires WASM interpreter
+	MaxComplexity   int  `json:"max_complexity"`   // maximum complexity level
 }
 
 type Spec struct {

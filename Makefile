@@ -8,6 +8,8 @@ help:
 	@echo "  lint        - Run linter (golangci-lint)"
 	@echo "  build       - Build all packages"
 	@echo "  worker      - Build worker binary"
+	@echo "  router      - Build router binary"
+	@echo "  binaries    - Build all binaries"
 	@echo "  run-worker  - Build and run worker"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  deps        - Download dependencies"
@@ -69,6 +71,15 @@ worker:
 	@echo "Building worker binary..."
 	go build -o worker ./cmd/worker
 
+# Build router binary
+router:
+	@echo "Building router binary..."
+	go build -o router ./cmd/router
+
+# Build all binaries
+binaries: worker router
+	@echo "All binaries built successfully"
+
 # Build and run the worker
 run-worker:
 	@echo "Building and running worker..."
@@ -94,7 +105,7 @@ vet:
 clean:
 	@echo "Cleaning build artifacts..."
 	go clean ./...
-	rm -f worker
+	rm -f worker router
 	rm -rf ./hypotheses
 
 # Install development tools

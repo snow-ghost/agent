@@ -9,6 +9,7 @@ import (
 
 // Config holds configuration for the worker
 type Config struct {
+	WorkerType       string
 	WorkerPort       string
 	LLMMode          string
 	PolicyAllowTools []string
@@ -21,6 +22,7 @@ type Config struct {
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
 	config := &Config{
+		WorkerType:       getEnv("WORKER_TYPE", "heavy"),
 		WorkerPort:       getEnv("WORKER_PORT", "8081"),
 		LLMMode:          getEnv("LLM_MODE", "mock"),
 		PolicyAllowTools: parseCommaSeparated(getEnv("POLICY_ALLOW_TOOLS", "example.com,api.example.com")),

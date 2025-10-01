@@ -1,19 +1,14 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 
-	"github.com/snow-ghost/agent/core"
-	"github.com/snow-ghost/agent/interp/wasm"
-	kbmem "github.com/snow-ghost/agent/kb/memory"
-	llmmock "github.com/snow-ghost/agent/llm/mock"
-	"github.com/snow-ghost/agent/testkit"
 	"github.com/snow-ghost/agent/worker"
-	"github.com/snow-ghost/agent/worker/mutate"
+	"github.com/snow-ghost/agent/worker/telemetry"
 )
 
 func main() {
@@ -27,26 +22,46 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	// Wire components
-	kb := kbmem.NewRegistryWithDir(config.HypothesesDir)
-	llm := llmmock.NewMockLLM()
-	interp := wasm.NewInterpreter()
-	defer interp.Close(context.Background())
-	runner := testkit.NewRunner()
-	fitness := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.0)
-	critic := core.NewSimpleCritic()
-	mut := mutate.NewSimpleMutator()
+	// Create worker using factory
+	workerInstance, err := worker.NewWorker(config)
+	if err != nil {
+		logger.Error("failed to create worker", "error", err)
+		os.Exit(1)
+	}
 
-	// Create solver with telemetry
-	solver := &worker.Solver{KB: kb, LLM: llm, Interp: interp, Tests: runner, Fitness: fitness, Critic: critic, Mut: mut}
-	instrumentedSolver := worker.NewInstrumentedSolver(solver)
-	ing := worker.NewIngestor(instrumentedSolver.Solve)
+	// Create ingestor
+	ing := worker.NewIngestor(workerInstance.Solve)
 
 	// Setup HTTP routes
 	mux := http.NewServeMux()
 	mux.Handle("/solve", ing)
-	mux.Handle("/health", http.HandlerFunc(instrumentedSolver.GetTelemetry().HealthHandler))
-	mux.Handle("/metrics", http.HandlerFunc(instrumentedSolver.GetTelemetry().MetricsHandler))
+
+	// Get telemetry from worker if available
+	// Try to get telemetry from the worker
+	var telemetryHandler http.HandlerFunc
+	var metricsHandler http.HandlerFunc
+
+	// Check if worker has GetTelemetry method (common pattern)
+	if telemetryGetter, ok := workerInstance.(interface{ GetTelemetry() *telemetry.Telemetry }); ok {
+		telemetry := telemetryGetter.GetTelemetry()
+		telemetryHandler = telemetry.HealthHandler
+		metricsHandler = telemetry.MetricsHandler
+	} else {
+		// Fallback health endpoint
+		telemetryHandler = func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"status":"ok","service":"agent-worker","type":"%s"}`, workerInstance.Type())
+		}
+		metricsHandler = func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"metrics":"not_available"}`)
+		}
+	}
+
+	mux.Handle("/health", telemetryHandler)
+	mux.Handle("/metrics", metricsHandler)
 
 	logger.Info("worker starting",
 		"port", config.WorkerPort,
