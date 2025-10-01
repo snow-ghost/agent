@@ -82,6 +82,23 @@ func (r *Registry) RegisterSkill(skill core.Skill) {
 	r.skills = append(r.skills, skill)
 }
 
+// Find implements core.KnowledgeBase: return skills sorted by confidence.
+func (r *Registry) Find(task core.Task) []core.Skill {
+	// simple order: any skill that CanSolve true, maintain insertion order
+	out := make([]core.Skill, 0, len(r.skills))
+	for _, sk := range r.skills {
+		if ok, _ := sk.CanSolve(task); ok {
+			out = append(out, sk)
+		}
+	}
+	return out
+}
+
+// SaveHypothesis is a no-op for in-memory KB in MVP.
+func (r *Registry) SaveHypothesis(ctx context.Context, h core.Hypothesis, quality float64) error {
+	return nil
+}
+
 // SortSkill implements sorting of number arrays
 type SortSkill struct{}
 

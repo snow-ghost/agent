@@ -11,6 +11,45 @@ type Budget struct {
 	Timeout   time.Duration // task timeout
 }
 
+// MarshalJSON implements custom JSON marshaling for Budget
+func (b Budget) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		CPUMillis int    `json:"cpu_millis"`
+		MemMB     int    `json:"mem_mb"`
+		Timeout   string `json:"timeout"`
+	}{
+		CPUMillis: b.CPUMillis,
+		MemMB:     b.MemMB,
+		Timeout:   b.Timeout.String(),
+	})
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Budget
+func (b *Budget) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		CPUMillis int    `json:"cpu_millis"`
+		MemMB     int    `json:"mem_mb"`
+		Timeout   string `json:"timeout"`
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	b.CPUMillis = aux.CPUMillis
+	b.MemMB = aux.MemMB
+
+	if aux.Timeout != "" {
+		duration, err := time.ParseDuration(aux.Timeout)
+		if err != nil {
+			return err
+		}
+		b.Timeout = duration
+	}
+
+	return nil
+}
+
 type Task struct {
 	ID        string
 	Domain    string

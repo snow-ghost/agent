@@ -35,7 +35,9 @@ func TestTaskJSONRoundTrip(t *testing.T) {
 	require.Equal(t, task.ID, got.ID)
 	require.Equal(t, task.Domain, got.Domain)
 	require.Equal(t, task.Spec, got.Spec)
-	require.Equal(t, task.Budget, got.Budget)
+	require.Equal(t, task.Budget.CPUMillis, got.Budget.CPUMillis)
+	require.Equal(t, task.Budget.MemMB, got.Budget.MemMB)
+	require.Equal(t, task.Budget.Timeout, got.Budget.Timeout)
 	require.Equal(t, string(task.Input), string(got.Input))
 	// CreatedAt might have slight precision differences, so check they're close
 	require.WithinDuration(t, task.CreatedAt, got.CreatedAt, time.Millisecond)
