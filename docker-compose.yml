@@ -34,8 +34,10 @@ services:
       - WORKER_PORT=8081
       - LOG_LEVEL=info
       - HYPOTHESES_DIR=/app/hypotheses
+      - ARTIFACTS_DIR=/app/artifacts
     volumes:
       - hypotheses-data:/app/hypotheses
+      - artifacts-data:/app/artifacts
     networks:
       - agent-network
     restart: unless-stopped
@@ -57,10 +59,12 @@ services:
       - LOG_LEVEL=info
       - LLM_MODE=mock
       - HYPOTHESES_DIR=/app/hypotheses
+      - ARTIFACTS_DIR=/app/artifacts
       - SANDBOX_MEM_MB=64
       - TASK_TIMEOUT=60s
     volumes:
       - hypotheses-data:/app/hypotheses
+      - artifacts-data:/app/artifacts
     networks:
       - agent-network
     restart: unless-stopped
@@ -87,6 +91,8 @@ services:
 
 volumes:
   hypotheses-data:
+    driver: local
+  artifacts-data:
     driver: local
 
 networks:

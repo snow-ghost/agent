@@ -36,8 +36,8 @@ WORKDIR /app
 COPY --from=builder /app/worker-bin /app/worker-bin
 COPY --from=builder /app/router /app/router
 
-# Create hypotheses directory
-RUN mkdir -p /app/hypotheses && chown agent:agent /app/hypotheses
+# Create hypotheses and artifacts directories
+RUN mkdir -p /app/hypotheses /app/artifacts && chown agent:agent /app/hypotheses /app/artifacts
 
 # Switch to non-root user
 USER agent

@@ -16,6 +16,7 @@ type Config struct {
 	SandboxMemMB     int
 	TaskTimeout      time.Duration
 	HypothesesDir    string
+	ArtifactsDir     string
 	LogLevel         string
 }
 
@@ -29,6 +30,7 @@ func LoadConfig() *Config {
 		SandboxMemMB:     getEnvInt("SANDBOX_MEM_MB", 4),
 		TaskTimeout:      getEnvDuration("TASK_TIMEOUT", "30s"),
 		HypothesesDir:    getEnv("HYPOTHESES_DIR", "./hypotheses"),
+		ArtifactsDir:     getEnv("ARTIFACTS_DIR", "./artifacts"),
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 	}
 

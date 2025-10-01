@@ -217,6 +217,54 @@ make ci
 make clean
 ```
 
+## Artifact Knowledge Base
+
+The system now supports a unified artifact-based knowledge base that replaces Go skills with standardized artifacts containing WASM code and metadata.
+
+### Artifact Structure
+
+Each artifact is stored in a directory with the following structure:
+```
+artifacts/
+├── artifact-id@version/
+│   ├── manifest.json    # Artifact metadata
+│   └── code.wasm       # WASM bytecode (for WASM artifacts)
+```
+
+### Manifest Format
+
+```json
+{
+  "id": "alg.sort.v1",
+  "version": "1.0.0",
+  "domain": "algorithms.sorting",
+  "description": "Stable integer sort",
+  "tags": ["sort", "stable"],
+  "lang": "wasm",
+  "entry": "solve",
+  "code_path": "code.wasm",
+  "sha256": "...",
+  "tests": [...],
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Features
+
+- **Unified Storage**: Both WASM and Go skills stored as artifacts
+- **SHA256 Verification**: Automatic integrity checking for WASM artifacts
+- **Tag-based Search**: Find artifacts by domain, tags, or keywords
+- **Automatic Migration**: Existing Go skills can be converted to artifacts
+- **Hypothesis Persistence**: LLM-generated solutions saved as artifacts
+
+### Usage
+
+The system automatically uses the artifact-based knowledge base when `ARTIFACTS_DIR` is configured. Workers will:
+1. Load all artifacts on startup
+2. Convert them to skills for task solving
+3. Save successful hypotheses as new artifacts
+4. Support both WASM and Go skill artifacts during migration
+
 ## Docker Deployment
 
 ### Quick Start
@@ -281,7 +329,8 @@ make docker-up-nginx
 | `WORKER_TYPE` | `heavy` | Worker type: `light` or `heavy` |
 | `WORKER_PORT` | `8081` | Port for worker service |
 | `LOG_LEVEL` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
-| `HYPOTHESES_DIR` | `./hypotheses` | Directory for saved hypotheses |
+| `HYPOTHESES_DIR` | `./hypotheses` | Directory for saved hypotheses (legacy) |
+| `ARTIFACTS_DIR` | `./artifacts` | Directory for artifact-based knowledge base |
 | `LLM_MODE` | `mock` | LLM mode: `mock` or `real` |
 | `SANDBOX_MEM_MB` | `4` | Memory limit for WASM sandbox |
 | `TASK_TIMEOUT` | `30s` | Default task timeout |

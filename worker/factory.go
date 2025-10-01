@@ -5,6 +5,7 @@ import (
 
 	"github.com/snow-ghost/agent/core"
 	"github.com/snow-ghost/agent/interp/wasm"
+	kbfs "github.com/snow-ghost/agent/kb/fs"
 	kbmem "github.com/snow-ghost/agent/kb/memory"
 	llmmock "github.com/snow-ghost/agent/llm/mock"
 	"github.com/snow-ghost/agent/testkit"
@@ -22,7 +23,15 @@ func NewWorker(config *Config) (Worker, error) {
 	}
 
 	// Create common components
-	kb := kbmem.NewRegistryWithDir(config.HypothesesDir)
+	// Use artifact-based KB if artifacts directory is configured
+	var kb core.KnowledgeBase
+	if config.ArtifactsDir != "" {
+		interp := wasm.NewInterpreter()
+		kb = kbfs.NewArtifactKnowledgeBase(config.ArtifactsDir, interp)
+	} else {
+		// Fallback to memory-based KB
+		kb = kbmem.NewRegistryWithDir(config.HypothesesDir)
+	}
 	telemetry := telemetry.NewTelemetry()
 
 	switch workerType {
