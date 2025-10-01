@@ -33,7 +33,9 @@ func TestAdapter_ParseJSON(t *testing.T) {
 	guard := local.NewGuard(nil)
 	adapter := NewAdapter(guard)
 	ctx := context.Background()
-	var out struct{ Name string `json:"name"` }
+	var out struct {
+		Name string `json:"name"`
+	}
 	err := adapter.ParseJSON(ctx, []byte(`{"name":"test"}`), &out)
 	assert.NoError(t, err)
 	assert.Equal(t, "test", out.Name)

@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose lint build clean deps fmt vet
+.PHONY: help test test-verbose lint build clean deps fmt vet worker check ci
 
 # Default target
 help:
@@ -7,10 +7,15 @@ help:
 	@echo "  test-verbose- Run all tests with verbose output"
 	@echo "  lint        - Run linter (golangci-lint)"
 	@echo "  build       - Build all packages"
+	@echo "  worker      - Build worker binary"
+	@echo "  run-worker  - Build and run worker"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  deps        - Download dependencies"
 	@echo "  fmt         - Format code"
 	@echo "  vet         - Run go vet"
+	@echo "  check       - Run all checks (fmt, vet, lint, test)"
+	@echo "  ci          - Run full CI pipeline"
+	@echo "  install-tools- Install development tools"
 	@echo "  test-core   - Run core package tests"
 	@echo "  test-kb     - Run kb package tests"
 	@echo "  test-interp - Run interp package tests"
@@ -59,6 +64,11 @@ build:
 	@echo "Building all packages..."
 	go build ./...
 
+# Build worker binary
+worker:
+	@echo "Building worker binary..."
+	go build -o worker ./cmd/worker
+
 # Build and run the worker
 run-worker:
 	@echo "Building and running worker..."
@@ -84,6 +94,8 @@ vet:
 clean:
 	@echo "Cleaning build artifacts..."
 	go clean ./...
+	rm -f worker
+	rm -rf ./hypotheses
 
 # Install development tools
 install-tools:

@@ -13,7 +13,7 @@ import (
 
 func TestSimpleMutator_CandidatesCount(t *testing.T) {
 	m := NewSimpleMutator()
-	base := core.Hypothesis{ID: "algo", Source: "test", Lang: "wasm", Bytes: []byte{1,2,3}, Meta: map[string]string{"version": "v1"}}
+	base := core.Hypothesis{ID: "algo", Source: "test", Lang: "wasm", Bytes: []byte{1, 2, 3}, Meta: map[string]string{"version": "v1"}}
 	cands := m.Mutate(base)
 	assert.GreaterOrEqual(t, len(cands), 3) // at least keep + a couple toggles
 }

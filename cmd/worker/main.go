@@ -17,14 +17,18 @@ import (
 )
 
 func main() {
+	// Load configuration
+	config := worker.LoadConfig()
+
 	// Setup structured logging
+	logLevel := parseLogLevel(config.LogLevel)
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
 
 	// Wire components
-	kb := kbmem.NewRegistry()
+	kb := kbmem.NewRegistryWithDir(config.HypothesesDir)
 	llm := llmmock.NewMockLLM()
 	interp := wasm.NewInterpreter()
 	defer interp.Close(context.Background())
@@ -44,6 +48,27 @@ func main() {
 	mux.Handle("/health", http.HandlerFunc(instrumentedSolver.GetTelemetry().HealthHandler))
 	mux.Handle("/metrics", http.HandlerFunc(instrumentedSolver.GetTelemetry().MetricsHandler))
 
-	logger.Info("worker starting", "port", "8081")
-	log.Fatal(http.ListenAndServe(":8081", mux))
+	logger.Info("worker starting",
+		"port", config.WorkerPort,
+		"llm_mode", config.LLMMode,
+		"hypotheses_dir", config.HypothesesDir,
+		"log_level", config.LogLevel)
+
+	log.Fatal(http.ListenAndServe(":"+config.WorkerPort, mux))
+}
+
+// parseLogLevel converts string log level to slog.Level
+func parseLogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

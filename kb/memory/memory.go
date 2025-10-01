@@ -53,7 +53,7 @@ func NewRegistry() *Registry {
 	registry.RegisterSkill(&ReverseSkill{})
 
 	// Load saved hypotheses
-	registry.LoadHypotheses()
+	_ = registry.LoadHypotheses()
 
 	return registry
 }
@@ -70,7 +70,7 @@ func NewRegistryWithDir(hypothesesDir string) *Registry {
 	registry.RegisterSkill(&ReverseSkill{})
 
 	// Load saved hypotheses
-	registry.LoadHypotheses()
+	_ = registry.LoadHypotheses()
 
 	return registry
 }

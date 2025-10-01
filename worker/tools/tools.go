@@ -15,13 +15,13 @@ import (
 
 // Adapter provides access to limited external tools, guarded by PolicyGuard.
 type Adapter struct {
-	guard core.PolicyGuard
+	guard  core.PolicyGuard
 	client *http.Client
 }
 
 func NewAdapter(guard core.PolicyGuard) *Adapter {
 	return &Adapter{
-		guard: guard,
+		guard:  guard,
 		client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -47,7 +47,7 @@ func (a *Adapter) HTTPGetJSON(ctx context.Context, rawURL string, out any) error
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("http status %d", resp.StatusCode)
 	}

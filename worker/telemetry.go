@@ -123,7 +123,7 @@ func (t *Telemetry) LogIteration(ctx context.Context, iteration int, bestScore f
 func (t *Telemetry) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok","service":"agent-worker"}`))
+	_, _ = w.Write([]byte(`{"status":"ok","service":"agent-worker"}`))
 }
 
 // MetricsHandler returns metrics in expvar format
