@@ -1,0 +1,26 @@
+# Development overrides
+version: '3.8'
+
+services:
+  # Override for development with volume mounts
+  light-worker:
+    volumes:
+      - ./hypotheses:/app/hypotheses
+      - .:/app/src:ro  # Mount source for development
+    environment:
+      - LOG_LEVEL=debug
+    command: ["./worker"]
+
+  heavy-worker:
+    volumes:
+      - ./hypotheses:/app/hypotheses
+      - .:/app/src:ro  # Mount source for development
+    environment:
+      - LOG_LEVEL=debug
+    command: ["./worker"]
+
+  router:
+    volumes:
+      - .:/app/src:ro  # Mount source for development
+    environment:
+      - LOG_LEVEL=debug

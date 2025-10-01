@@ -16,6 +16,10 @@ help:
 	@echo "  fmt         - Format code"
 	@echo "  vet         - Run go vet"
 	@echo "  check       - Run all checks (fmt, vet, lint, test)"
+	@echo "  docker-build- Build Docker image"
+	@echo "  docker-up   - Start services with docker-compose"
+	@echo "  docker-down - Stop services with docker-compose"
+	@echo "  docker-logs - Show logs from all services"
 	@echo "  ci          - Run full CI pipeline"
 	@echo "  install-tools- Install development tools"
 	@echo "  test-core   - Run core package tests"
@@ -124,6 +128,27 @@ check-tools:
 # Run all checks (format, vet, lint, test)
 check: fmt vet lint test
 	@echo "All checks passed!"
+
+# Docker operations
+docker-build:
+	@echo "Building Docker image..."
+	docker build -t agent-worker .
+
+docker-up:
+	@echo "Starting services with docker-compose..."
+	docker-compose up -d
+
+docker-down:
+	@echo "Stopping services with docker-compose..."
+	docker-compose down
+
+docker-logs:
+	@echo "Showing logs from all services..."
+	docker-compose logs -f
+
+docker-up-nginx:
+	@echo "Starting services with nginx..."
+	docker-compose --profile with-nginx up -d
 
 # CI pipeline
 ci: deps fmt vet lint test build

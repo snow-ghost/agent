@@ -217,6 +217,82 @@ make ci
 make clean
 ```
 
+## Docker Deployment
+
+### Quick Start
+
+1. **Build and start all services:**
+   ```bash
+   make docker-up
+   ```
+
+2. **Access the services:**
+   - Router: http://localhost:8080
+   - Light Worker: http://localhost:8081
+   - Heavy Worker: http://localhost:8082
+
+3. **With Nginx load balancer:**
+   ```bash
+   make docker-up-nginx
+   ```
+   - Access via: http://localhost (port 80)
+
+### Service Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐
+│   Nginx         │    │   Router        │
+│  (Port 80)      │───▶│  (Port 8080)    │
+│  Load Balancer  │    │  Task Router    │
+└─────────────────┘    └─────────────────┘
+                                │
+                    ┌───────────┴───────────┐
+                    ▼                       ▼
+            ┌─────────────────┐    ┌─────────────────┐
+            │  Light Worker   │    │  Heavy Worker   │
+            │  (Port 8081)    │    │  (Port 8082)    │
+            │  KB Only        │    │  LLM+WASM+KB    │
+            └─────────────────┘    └─────────────────┘
+```
+
+### Docker Commands
+
+```bash
+# Build Docker image
+make docker-build
+
+# Start all services
+make docker-up
+
+# Stop all services
+make docker-down
+
+# View logs
+make docker-logs
+
+# Start with nginx
+make docker-up-nginx
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKER_TYPE` | `heavy` | Worker type: `light` or `heavy` |
+| `WORKER_PORT` | `8081` | Port for worker service |
+| `LOG_LEVEL` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
+| `HYPOTHESES_DIR` | `./hypotheses` | Directory for saved hypotheses |
+| `LLM_MODE` | `mock` | LLM mode: `mock` or `real` |
+| `SANDBOX_MEM_MB` | `4` | Memory limit for WASM sandbox |
+| `TASK_TIMEOUT` | `30s` | Default task timeout |
+
+### Health Checks
+
+All services include health check endpoints:
+- Router: `GET /health`
+- Workers: `GET /health`
+- Metrics: `GET /metrics`
+
 ## Architecture
 
 ### Components

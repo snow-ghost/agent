@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Router service - routes tasks to appropriate workers
+  router:
+    build: .
+    command: ["./router"]
+    ports:
+      - "8080:8080"
+    environment:
+      - ROUTER_PORT=8080
+      - LIGHT_WORKER_URL=http://light-worker:8081
+      - HEAVY_WORKER_URL=http://heavy-worker:8082
+    depends_on:
+      - light-worker
+      - heavy-worker
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Light worker - KB-only processing
+  light-worker:
+    build: .
+    command: ["./worker"]
+    ports:
+      - "8081:8081"
+    environment:
+      - WORKER_TYPE=light
+      - WORKER_PORT=8081
+      - LOG_LEVEL=info
+      - HYPOTHESES_DIR=/app/hypotheses
+    volumes:
+      - hypotheses-data:/app/hypotheses
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Heavy worker - LLM+WASM processing
+  heavy-worker:
+    build: .
+    command: ["./worker"]
+    ports:
+      - "8082:8082"
+    environment:
+      - WORKER_TYPE=heavy
+      - WORKER_PORT=8082
+      - LOG_LEVEL=info
+      - LLM_MODE=mock
+      - HYPOTHESES_DIR=/app/hypotheses
+      - SANDBOX_MEM_MB=64
+      - TASK_TIMEOUT=60s
+    volumes:
+      - hypotheses-data:/app/hypotheses
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Nginx reverse proxy for load balancing
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - router
+    networks:
+      - agent-network
+    restart: unless-stopped
+    profiles:
+      - with-nginx
+
+volumes:
+  hypotheses-data:
+    driver: local
+
+networks:
+  agent-network:
+    driver: bridge

@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+worker
+router
+worker-bin
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+test_*.go
+
+# Documentation
+README.md
+LICENSE
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Hypotheses directory (will be mounted as volume)
+hypotheses/
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore

@@ -1,0 +1,49 @@
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binaries
+RUN go build -o worker ./cmd/worker
+RUN go build -o router ./cmd/router
+
+# Runtime stage
+FROM alpine:3.18
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create non-root user
+RUN adduser -D -s /bin/sh agent
+
+# Set working directory
+WORKDIR /app
+
+# Copy binaries from builder stage
+COPY --from=builder /app/worker /app/worker
+COPY --from=builder /app/router /app/router
+
+# Create hypotheses directory
+RUN mkdir -p /app/hypotheses && chown agent:agent /app/hypotheses
+
+# Switch to non-root user
+USER agent
+
+# Expose ports
+EXPOSE 8080 8081 8082
+
+# Default command (can be overridden)
+CMD ["./worker"]
