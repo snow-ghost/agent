@@ -304,3 +304,10 @@ func (kb *ArtifactKnowledgeBase) SaveHypothesis(ctx context.Context, h core.Hypo
 func (kb *ArtifactKnowledgeBase) GetArtifactFS() *KnowledgeBaseFS {
 	return kb.fs
 }
+
+// SearchByText searches for artifacts by text query using vector search
+func (kb *ArtifactKnowledgeBase) SearchByText(ctx context.Context, query string, topK int) ([]*artifact.Manifest, error) {
+	// For now, fallback to simple text search
+	// In a full implementation, this would use the vector indexer
+	return kb.fs.Search(query), nil
+}

@@ -80,8 +80,13 @@ router:
 	@echo "Building router binary..."
 	go build -o router ./cmd/router
 
+# Build kb-indexer binary
+kb-indexer:
+	@echo "Building kb-indexer binary..."
+	go build -o kb-indexer ./cmd/kb-indexer
+
 # Build all binaries
-binaries: worker router
+binaries: worker router kb-indexer
 	@echo "All binaries built successfully"
 
 # Build and run the worker
@@ -109,7 +114,7 @@ vet:
 clean:
 	@echo "Cleaning build artifacts..."
 	go clean ./...
-	rm -f worker router
+	rm -f worker router kb-indexer
 	rm -rf ./hypotheses
 
 # Install development tools

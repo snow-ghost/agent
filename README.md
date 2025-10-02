@@ -300,6 +300,7 @@ artifacts/
 - **Unified Storage**: Both WASM and Go skills stored as artifacts
 - **SHA256 Verification**: Automatic integrity checking for WASM artifacts
 - **Tag-based Search**: Find artifacts by domain, tags, or keywords
+- **Vector Search (RAG)**: Semantic search using embeddings for better artifact discovery
 - **Automatic Migration**: Existing Go skills can be converted to artifacts
 - **Hypothesis Persistence**: LLM-generated solutions saved as artifacts
 
@@ -310,6 +311,40 @@ The system automatically uses the artifact-based knowledge base when `ARTIFACTS_
 2. Convert them to skills for task solving
 3. Save successful hypotheses as new artifacts
 4. Support both WASM and Go skill artifacts during migration
+
+### Vector Search (RAG)
+
+The system includes advanced vector search capabilities for semantic artifact discovery:
+
+#### Embedders
+- **Mock TF-IDF**: Local TF-IDF based embedder for testing
+- **OpenAI**: Production-ready embeddings using OpenAI's API
+
+#### Vector Stores
+- **Memory**: In-memory cosine similarity search
+- **Qdrant**: Production vector database (placeholder implementation)
+
+#### Indexing Artifacts
+```bash
+# Index artifacts using mock embedder
+./kb-indexer -artifacts-dir ./artifacts -embedder mock -vector-store memory
+
+# Index with OpenAI embeddings
+export OPENAI_API_KEY=your_key
+./kb-indexer -artifacts-dir ./artifacts -embedder openai -vector-store memory
+
+# Show index statistics
+./kb-indexer -stats
+```
+
+#### Environment Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBEDDINGS_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `EMBEDDINGS_DIMENSION` | `1536` | Vector dimension |
+| `QDRANT_URL` | `localhost:6333` | Qdrant server URL |
+| `QDRANT_API_KEY` | - | Qdrant API key |
+| `QDRANT_COLLECTION` | `artifacts` | Qdrant collection name |
 
 ### Testing the Artifact System
 
