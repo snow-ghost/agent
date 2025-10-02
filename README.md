@@ -409,7 +409,8 @@ export OPENAI_API_KEY=your_key
 ┌─────────────────┐    ┌─────────────────┐
 │   Nginx         │    │   Router        │
 │  (Port 80)      │───▶│  (Port 8083)    │
-│  Load Balancer  │    │  Task Router    │
+│  Load Balancer  │    │  Capability-    │
+│                 │    │  Based Router   │
 └─────────────────┘    └─────────────────┘
                                 │
                     ┌───────────┴───────────┐
@@ -418,8 +419,32 @@ export OPENAI_API_KEY=your_key
             │  Light Worker   │    │  Heavy Worker   │
             │  (Port 8081)    │    │  (Port 8082)    │
             │  KB Only        │    │  LLM+WASM+KB    │
+            │  Capabilities:  │    │  Capabilities:  │
+            │  KB             │    │  KB+WASM+LLM    │
             └─────────────────┘    └─────────────────┘
 ```
+
+### Worker Capabilities
+
+The system supports two types of workers with different capabilities:
+
+#### Light Worker
+- **Capabilities**: KB only
+- **Use Cases**: Simple tasks that can be solved with existing knowledge
+- **Performance**: Fast, low resource usage
+- **Endpoints**: `/solve`, `/health`, `/metrics`, `/caps`, `/ready`
+
+#### Heavy Worker  
+- **Capabilities**: KB + WASM + LLM
+- **Use Cases**: Complex tasks requiring code generation and execution
+- **Performance**: Slower, higher resource usage
+- **Endpoints**: `/solve`, `/health`, `/metrics`, `/caps`, `/ready`
+
+#### Routing Logic
+Tasks are automatically routed based on their requirements:
+- **Requires Sandbox** → Heavy Worker (needs WASM)
+- **High Complexity** (> threshold) → Heavy Worker (needs LLM)
+- **Default** → Light Worker (KB only)
 
 ### Docker Commands
 
@@ -452,13 +477,35 @@ make docker-up-nginx
 | `LLM_MODE` | `mock` | LLM mode: `mock` or `real` |
 | `SANDBOX_MEM_MB` | `4` | Memory limit for WASM sandbox |
 | `TASK_TIMEOUT` | `30s` | Default task timeout |
+| `COMPLEXITY_THRESHOLD` | `5` | Complexity threshold for heavy worker routing |
 
 ### Health Checks
 
-All services include health check endpoints:
-- Router: `GET /health`
-- Workers: `GET /health`
-- Metrics: `GET /metrics`
+All services include comprehensive health check endpoints:
+
+#### Router Endpoints
+- `GET /health` - Basic health status
+- `GET /caps` - Worker capabilities and routing rules
+- `GET /ready` - Readiness status (checks worker availability)
+
+#### Worker Endpoints
+- `GET /health` - Basic health status
+- `GET /metrics` - Prometheus-compatible metrics
+- `GET /caps` - Worker capabilities
+- `GET /ready` - Readiness status
+
+#### Example Usage
+```bash
+# Check router capabilities
+curl http://localhost:8083/caps
+
+# Check if all workers are ready
+curl http://localhost:8083/ready
+
+# Check specific worker capabilities
+curl http://localhost:8081/caps  # Light worker
+curl http://localhost:8082/caps  # Heavy worker
+```
 
 ## Architecture
 

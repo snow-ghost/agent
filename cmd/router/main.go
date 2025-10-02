@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
@@ -16,23 +17,34 @@ import (
 
 // RouterConfig holds configuration for the router
 type RouterConfig struct {
-	LightWorkerURL string
-	HeavyWorkerURL string
-	Port           string
+	LightWorkerURL      string
+	HeavyWorkerURL      string
+	Port                string
+	ComplexityThreshold int
 }
 
 // LoadRouterConfig loads router configuration from environment variables
 func LoadRouterConfig() *RouterConfig {
 	return &RouterConfig{
-		LightWorkerURL: getEnv("LIGHT_WORKER_URL", "http://localhost:8081"),
-		HeavyWorkerURL: getEnv("HEAVY_WORKER_URL", "http://localhost:8082"),
-		Port:           getEnv("ROUTER_PORT", "8080"),
+		LightWorkerURL:      getEnv("LIGHT_WORKER_URL", "http://localhost:8081"),
+		HeavyWorkerURL:      getEnv("HEAVY_WORKER_URL", "http://localhost:8082"),
+		Port:                getEnv("ROUTER_PORT", "8080"),
+		ComplexityThreshold: getEnvInt("COMPLEXITY_THRESHOLD", 5),
 	}
 }
 
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
 	}
 	return defaultValue
 }
@@ -57,8 +69,28 @@ func NewRouter(config *RouterConfig) *Router {
 	}
 }
 
-// RouteTask determines which worker should handle the task
-func (r *Router) RouteTask(task core.Task) string {
+// RouteTask determines which worker should handle the task based on capabilities
+func (r *Router) RouteTask(task core.Task) (string, string) {
+	// Check if task requires sandbox (WASM)
+	requiresSandbox := task.Flags.RequiresSandbox
+
+	// Check complexity threshold
+	maxComplexity := task.Flags.MaxComplexity
+	highComplexity := maxComplexity > r.config.ComplexityThreshold
+
+	// Route to heavy worker if:
+	// 1. Task requires sandbox (WASM)
+	// 2. Task has high complexity (needs LLM)
+	if requiresSandbox || highComplexity {
+		return r.config.HeavyWorkerURL, "heavy"
+	}
+
+	// Otherwise route to light worker
+	return r.config.LightWorkerURL, "light"
+}
+
+// RouteTaskLegacy determines which worker should handle the task (legacy method)
+func (r *Router) RouteTaskLegacy(task core.Task) string {
 	// Check task flags first
 	if task.Flags.RequiresSandbox {
 		return "heavy"
@@ -152,8 +184,8 @@ func (r *Router) SolveHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Route task
-	workerType := r.RouteTask(task)
-	slog.Info("routing task", "task_id", task.ID, "worker_type", workerType)
+	workerURL, workerType := r.RouteTask(task)
+	slog.Info("routing task", "task_id", task.ID, "worker_type", workerType, "worker_url", workerURL)
 
 	// Forward to appropriate worker
 	result, err := r.ForwardTask(req.Context(), task, workerType)
@@ -176,6 +208,82 @@ func (r *Router) HealthHandler(w http.ResponseWriter, req *http.Request) {
 		r.config.LightWorkerURL, r.config.HeavyWorkerURL)
 }
 
+// CapsHandler returns worker capabilities
+func (r *Router) CapsHandler(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	caps := map[string]interface{}{
+		"light_worker": map[string]interface{}{
+			"url": r.config.LightWorkerURL,
+			"capabilities": map[string]bool{
+				"use_kb":   true,
+				"use_wasm": false,
+				"use_llm":  false,
+			},
+		},
+		"heavy_worker": map[string]interface{}{
+			"url": r.config.HeavyWorkerURL,
+			"capabilities": map[string]bool{
+				"use_kb":   true,
+				"use_wasm": true,
+				"use_llm":  true,
+			},
+		},
+		"routing_rules": map[string]interface{}{
+			"requires_sandbox":         "heavy",
+			"max_complexity_threshold": r.config.ComplexityThreshold,
+			"high_complexity":          "heavy",
+			"default":                  "light",
+		},
+	}
+
+	json.NewEncoder(w).Encode(caps)
+}
+
+// ReadyHandler returns readiness status
+func (r *Router) ReadyHandler(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Check if workers are reachable
+	lightReady := r.checkWorkerReady(r.config.LightWorkerURL)
+	heavyReady := r.checkWorkerReady(r.config.HeavyWorkerURL)
+
+	allReady := lightReady && heavyReady
+
+	status := "ready"
+	if !allReady {
+		status = "not_ready"
+	}
+
+	response := map[string]interface{}{
+		"status": status,
+		"workers": map[string]bool{
+			"light": lightReady,
+			"heavy": heavyReady,
+		},
+	}
+
+	if allReady {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// checkWorkerReady checks if a worker is ready
+func (r *Router) checkWorkerReady(workerURL string) bool {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(workerURL + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 func main() {
 	// Load configuration
 	config := LoadRouterConfig()
@@ -193,6 +301,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/solve", http.HandlerFunc(router.SolveHandler))
 	mux.Handle("/health", http.HandlerFunc(router.HealthHandler))
+	mux.Handle("/caps", http.HandlerFunc(router.CapsHandler))
+	mux.Handle("/ready", http.HandlerFunc(router.ReadyHandler))
 
 	logger.Info("router starting",
 		"port", config.Port,

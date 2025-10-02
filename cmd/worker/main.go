@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"os"
 
 	"github.com/snow-ghost/agent/worker"
+	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
 
@@ -62,6 +64,8 @@ func main() {
 
 	mux.Handle("/health", telemetryHandler)
 	mux.Handle("/metrics", metricsHandler)
+	mux.Handle("/caps", http.HandlerFunc(createCapsHandler(workerInstance)))
+	mux.Handle("/ready", http.HandlerFunc(createReadyHandler(workerInstance)))
 
 	logger.Info("worker starting",
 		"port", config.WorkerPort,
@@ -85,5 +89,57 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// createCapsHandler creates a capabilities handler for the worker
+func createCapsHandler(workerInstance worker.Worker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Check if worker supports capabilities
+		if capsWorker, ok := workerInstance.(capabilities.WorkerWithCapabilities); ok {
+			caps := capsWorker.Caps()
+			response := map[string]interface{}{
+				"worker_type": workerInstance.Type(),
+				"capabilities": map[string]bool{
+					"use_kb":   caps.UseKB,
+					"use_wasm": caps.UseWASM,
+					"use_llm":  caps.UseLLM,
+				},
+				"capabilities_string": caps.String(),
+			}
+			json.NewEncoder(w).Encode(response)
+		} else {
+			// Fallback for workers without capabilities
+			response := map[string]interface{}{
+				"worker_type": workerInstance.Type(),
+				"capabilities": map[string]bool{
+					"use_kb":   true, // All workers support KB
+					"use_wasm": workerInstance.Type() == "heavy",
+					"use_llm":  workerInstance.Type() == "heavy",
+				},
+			}
+			json.NewEncoder(w).Encode(response)
+		}
+	}
+}
+
+// createReadyHandler creates a readiness handler for the worker
+func createReadyHandler(workerInstance worker.Worker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// For now, all workers are always ready
+		// In a real implementation, you might check dependencies, health, etc.
+		response := map[string]interface{}{
+			"status":      "ready",
+			"worker_type": workerInstance.Type(),
+			"ready":       true,
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/snow-ghost/agent/core"
 	llmmock "github.com/snow-ghost/agent/llm/mock"
+	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/common"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
@@ -38,6 +39,11 @@ func NewHeavyWorker(kb core.KnowledgeBase, llm core.LLMClient, interp core.Inter
 		critic:     critic,
 		mut:        mut,
 	}
+}
+
+// Caps returns the capabilities of the heavy worker
+func (h *HeavyWorker) Caps() capabilities.Capabilities {
+	return capabilities.DefaultCapabilities("heavy")
 }
 
 // Solve processes a task using the full heavy worker pipeline

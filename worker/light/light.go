@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/common"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
@@ -22,6 +23,11 @@ func NewLightWorker(kb core.KnowledgeBase, telemetry *telemetry.Telemetry) *Ligh
 	return &LightWorker{
 		BaseWorker: baseWorker,
 	}
+}
+
+// Caps returns the capabilities of the light worker
+func (l *LightWorker) Caps() capabilities.Capabilities {
+	return capabilities.DefaultCapabilities("light")
 }
 
 // Solve processes a task using only the knowledge base
