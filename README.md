@@ -31,17 +31,17 @@ cd agent
 go mod tidy
 
 # Build the worker
-go build -o worker ./cmd/worker
+go build -o worker-bin ./cmd/worker
 ```
 
 ### Running the Agent
 
 ```bash
 # Start the worker with default settings
-./worker
+./worker-bin
 
 # Or with custom configuration
-WORKER_PORT=8080 LLM_MODE=mock ./worker
+WORKER_PORT=8080 LLM_MODE=mock ./worker-bin
 ```
 
 The worker will start on port 8080 (or the port specified by `WORKER_PORT`) and provide:
@@ -83,21 +83,51 @@ export LOG_LEVEL=debug
 
 Send a POST request to `/solve` with a JSON task:
 
+**Via Router (recommended):**
 ```bash
-curl -X POST http://localhost:8081/solve \
+curl -X POST http://localhost:8083/solve \
   -H "Content-Type: application/json" \
   -d '{
     "id": "sort-task-1",
-    "domain": "algorithms",
+    "domain": "algorithms.sorting",
     "spec": {
       "success_criteria": ["sorted_non_decreasing"],
-      "props": {"type": "numbers"},
+      "props": {"type": "sort"},
       "metrics_weights": {"cases_passed": 1.0, "cases_total": 0.0}
     },
     "input": "{\"numbers\": [3,1,2]}",
     "budget": {
       "cpu_millis": 1000,
       "timeout": "5s"
+    },
+    "flags": {
+      "requires_sandbox": true,
+      "max_complexity": 5
+    },
+    "created_at": "2024-01-01T00:00:00Z"
+  }'
+```
+
+**Direct to Worker:**
+```bash
+curl -X POST http://localhost:8081/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sort-task-1",
+    "domain": "algorithms.sorting",
+    "spec": {
+      "success_criteria": ["sorted_non_decreasing"],
+      "props": {"type": "sort"},
+      "metrics_weights": {"cases_passed": 1.0, "cases_total": 0.0}
+    },
+    "input": "{\"numbers\": [3,1,2]}",
+    "budget": {
+      "cpu_millis": 1000,
+      "timeout": "5s"
+    },
+    "flags": {
+      "requires_sandbox": true,
+      "max_complexity": 5
     },
     "created_at": "2024-01-01T00:00:00Z"
   }'
@@ -118,6 +148,10 @@ curl -X POST http://localhost:8081/solve \
   "budget": {
     "cpu_millis": 1000,
     "timeout": "30s"
+  },
+  "flags": {
+    "requires_sandbox": true,
+    "max_complexity": 5
   },
   "created_at": "2024-01-01T00:00:00Z"
 }
@@ -143,6 +177,12 @@ curl -X POST http://localhost:8081/solve \
 
 ### Health Check
 
+**Router:**
+```bash
+curl http://localhost:8083/health
+```
+
+**Worker:**
 ```bash
 curl http://localhost:8081/health
 ```
@@ -154,6 +194,12 @@ Response:
 
 ### Metrics
 
+**Router:**
+```bash
+curl http://localhost:8083/metrics
+```
+
+**Worker:**
 ```bash
 curl http://localhost:8081/metrics
 ```
@@ -175,7 +221,7 @@ Returns Prometheus-compatible metrics including:
 make build
 
 # Build specific component
-go build ./cmd/worker
+go build -o worker-bin ./cmd/worker
 ```
 
 ### Testing
@@ -265,6 +311,43 @@ The system automatically uses the artifact-based knowledge base when `ARTIFACTS_
 3. Save successful hypotheses as new artifacts
 4. Support both WASM and Go skill artifacts during migration
 
+### Testing the Artifact System
+
+1. **Start with artifacts directory:**
+   ```bash
+   export ARTIFACTS_DIR=./artifacts
+   ./worker-bin
+   ```
+
+2. **Submit a task that will be solved by artifacts:**
+   ```bash
+   curl -X POST http://localhost:8083/solve \
+     -H "Content-Type: application/json" \
+     -d '{
+       "id": "test-sort",
+       "domain": "algorithms.sorting",
+       "spec": {
+         "success_criteria": ["sorted_non_decreasing"],
+         "props": {"type": "sort"},
+         "metrics_weights": {"cases_passed": 1.0}
+       },
+       "input": "{\"numbers\": [3,1,2]}",
+       "budget": {"cpu_millis": 1000, "timeout": "5s"},
+       "flags": {"requires_sandbox": true, "max_complexity": 5},
+       "created_at": "2024-01-01T00:00:00Z"
+     }'
+   ```
+
+3. **Check that artifacts are created:**
+   ```bash
+   ls -la ./artifacts/
+   # Should show artifact directories with manifest.json and code.wasm
+   ```
+
+4. **Verify hypothesis persistence:**
+   - First run: Task solved by LLM, hypothesis saved as artifact
+   - Second run: Task solved by artifact from knowledge base
+
 ## Docker Deployment
 
 ### Quick Start
@@ -275,7 +358,7 @@ The system automatically uses the artifact-based knowledge base when `ARTIFACTS_
    ```
 
 2. **Access the services:**
-   - Router: http://localhost:8080
+   - Router: http://localhost:8083
    - Light Worker: http://localhost:8081
    - Heavy Worker: http://localhost:8082
 
@@ -290,7 +373,7 @@ The system automatically uses the artifact-based knowledge base when `ARTIFACTS_
 ```
 ┌─────────────────┐    ┌─────────────────┐
 │   Nginx         │    │   Router        │
-│  (Port 80)      │───▶│  (Port 8080)    │
+│  (Port 80)      │───▶│  (Port 8083)    │
 │  Load Balancer  │    │  Task Router    │
 └─────────────────┘    └─────────────────┘
                                 │
@@ -394,7 +477,7 @@ All services include health check endpoints:
 Enable debug logging:
 ```bash
 export LOG_LEVEL=debug
-./worker
+./worker-bin
 ```
 
 Check worker logs for detailed execution information.
