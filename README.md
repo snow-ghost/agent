@@ -42,6 +42,12 @@ go build -o worker-bin ./cmd/worker
 
 # Or with custom configuration
 WORKER_PORT=8080 LLM_MODE=mock ./worker-bin
+
+# Start with artifact-based knowledge base
+ARTIFACTS_DIR=./artifacts ./worker-bin
+
+# Start with vector search enabled
+ARTIFACTS_DIR=./artifacts EMBEDDINGS_MODE=mock VECTOR_BACKEND=memory ./worker-bin
 ```
 
 The worker will start on port 8080 (or the port specified by `WORKER_PORT`) and provide:
@@ -263,9 +269,25 @@ make ci
 make clean
 ```
 
+### Running Workers
+
+```bash
+# Run heavy worker (LLM+WASM+KB)
+make run-heavy
+
+# Run light worker (KB only)
+make run-light
+
+# Run router (capability-based routing)
+make run-router
+
+# Reindex artifacts for vector search
+make reindex ARTIFACTS_DIR=./artifacts
+```
+
 ## Artifact Knowledge Base
 
-The system now supports a unified artifact-based knowledge base that replaces Go skills with standardized artifacts containing WASM code and metadata.
+The system supports a unified artifact-based knowledge base that replaces Go skills with standardized artifacts containing WASM code and metadata.
 
 ### Artifact Structure
 
@@ -289,11 +311,37 @@ artifacts/
   "lang": "wasm",
   "entry": "solve",
   "code_path": "code.wasm",
-  "sha256": "...",
-  "tests": [...],
+  "sha256": "abc123...",
+  "embedding_model": "text-embedding-3-small",
+  "embedding": [0.1, 0.2, ...],
+  "tests": [
+    {
+      "name": "sort_test_1",
+      "input": "[3,1,2]",
+      "oracle": "[1,2,3]",
+      "checks": ["sorted_non_decreasing"],
+      "weight": 1.0
+    }
+  ],
   "created_at": "2024-01-01T00:00:00Z"
 }
 ```
+
+### Artifact Types
+
+#### WASM Artifacts
+- **Language**: `"wasm"`
+- **Entry Point**: `"solve"` function
+- **Code File**: `code.wasm` (WebAssembly bytecode)
+- **SHA256**: Verified integrity checksum
+- **Execution**: Sandboxed WASM runtime
+
+#### Go Skill Artifacts (Migration)
+- **Language**: `"go-skill"`
+- **Entry Point**: Package function name (e.g., `"algorithms.Sort"`)
+- **Code File**: None (compiled into binary)
+- **SHA256**: Not applicable
+- **Execution**: Direct Go function call
 
 ### Features
 
@@ -335,6 +383,32 @@ export OPENAI_API_KEY=your_key
 
 # Show index statistics
 ./kb-indexer -stats
+
+# Using Makefile
+make reindex ARTIFACTS_DIR=./artifacts
+```
+
+#### Configuration Examples
+
+**Local Development (Mock Embeddings)**
+```bash
+export ARTIFACTS_DIR=./artifacts
+export EMBEDDINGS_MODE=mock
+export VECTOR_BACKEND=memory
+export INDEX_ON_START=true
+./worker-bin
+```
+
+**Production (OpenAI + Qdrant)**
+```bash
+export ARTIFACTS_DIR=/var/lib/agent/artifacts
+export EMBEDDINGS_MODE=openai
+export EMBEDDINGS_MODEL=text-embedding-3-large
+export VECTOR_BACKEND=qdrant
+export QDRANT_URL=qdrant.example.com:6333
+export QDRANT_API_KEY=your_api_key
+export OPENAI_API_KEY=your_openai_key
+./worker-bin
 ```
 
 #### Environment Variables
@@ -467,17 +541,40 @@ make docker-up-nginx
 
 ### Environment Variables
 
+#### Core Configuration
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WORKER_TYPE` | `heavy` | Worker type: `light` or `heavy` |
 | `WORKER_PORT` | `8081` | Port for worker service |
 | `LOG_LEVEL` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
-| `HYPOTHESES_DIR` | `./hypotheses` | Directory for saved hypotheses (legacy) |
-| `ARTIFACTS_DIR` | `./artifacts` | Directory for artifact-based knowledge base |
-| `LLM_MODE` | `mock` | LLM mode: `mock` or `real` |
-| `SANDBOX_MEM_MB` | `4` | Memory limit for WASM sandbox |
 | `TASK_TIMEOUT` | `30s` | Default task timeout |
 | `COMPLEXITY_THRESHOLD` | `5` | Complexity threshold for heavy worker routing |
+
+#### Knowledge Base
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ARTIFACTS_DIR` | `./artifacts` | Directory for artifact-based knowledge base |
+| `HYPOTHESES_DIR` | `./hypotheses` | Directory for saved hypotheses (legacy) |
+| `INDEX_ON_START` | `false` | Whether to index artifacts on worker startup |
+
+#### LLM Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_MODE` | `mock` | LLM mode: `mock` or `real` |
+| `SANDBOX_MEM_MB` | `4` | Memory limit for WASM sandbox |
+
+#### Vector Search (RAG)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBEDDINGS_MODE` | `mock` | Embeddings mode: `mock` or `openai` |
+| `EMBEDDINGS_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `VECTOR_BACKEND` | `memory` | Vector database backend: `memory` or `qdrant` |
+
+#### Qdrant Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QDRANT_URL` | `localhost:6333` | Qdrant server URL |
+| `QDRANT_API_KEY` | - | Qdrant API key (optional) |
 
 ### Health Checks
 

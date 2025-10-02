@@ -11,6 +11,10 @@ help:
 	@echo "  router      - Build router binary"
 	@echo "  binaries    - Build all binaries"
 	@echo "  run-worker  - Build and run worker"
+	@echo "  run-heavy   - Run heavy worker (LLM+WASM+KB)"
+	@echo "  run-light   - Run light worker (KB only)"
+	@echo "  run-router  - Run router (capability-based routing)"
+	@echo "  reindex     - Reindex artifacts for vector search"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  deps        - Download dependencies"
 	@echo "  fmt         - Format code"
@@ -93,6 +97,31 @@ binaries: worker router kb-indexer
 run-worker:
 	@echo "Building and running worker..."
 	go run ./cmd/worker
+
+# Run heavy worker
+run-heavy:
+	@echo "Running heavy worker..."
+	WORKER_TYPE=heavy WORKER_PORT=8082 go run ./cmd/worker
+
+# Run light worker
+run-light:
+	@echo "Running light worker..."
+	WORKER_TYPE=light WORKER_PORT=8081 go run ./cmd/worker
+
+# Build and run the router
+run-router:
+	@echo "Building and running router..."
+	go run ./cmd/router
+
+# Reindex artifacts
+reindex:
+	@echo "Reindexing artifacts..."
+	@if [ -z "$(ARTIFACTS_DIR)" ]; then \
+		echo "Error: ARTIFACTS_DIR not set. Usage: make reindex ARTIFACTS_DIR=./artifacts"; \
+		exit 1; \
+	fi
+	@echo "Indexing artifacts in $(ARTIFACTS_DIR)..."
+	EMBEDDINGS_MODE=mock VECTOR_BACKEND=memory go run ./cmd/kb-indexer -artifacts-dir $(ARTIFACTS_DIR)
 
 # Download dependencies
 deps:
