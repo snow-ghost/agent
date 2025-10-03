@@ -14,6 +14,7 @@ help:
 	@echo "  run-heavy   - Run heavy worker (LLM+WASM+KB)"
 	@echo "  run-light   - Run light worker (KB only)"
 	@echo "  run-router  - Run router (capability-based routing)"
+	@echo "  run-llmrouter- Run LLM router (REST API + SSE)"
 	@echo "  reindex     - Reindex artifacts for vector search"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  deps        - Download dependencies"
@@ -77,20 +78,25 @@ build:
 # Build worker binary
 worker:
 	@echo "Building worker binary..."
-	go build -o worker ./cmd/worker
+	go build -o bin/worker ./cmd/worker
 
 # Build router binary
 router:
 	@echo "Building router binary..."
-	go build -o router ./cmd/router
+	go build -o bin/router ./cmd/router
 
 # Build kb-indexer binary
 kb-indexer:
 	@echo "Building kb-indexer binary..."
-	go build -o kb-indexer ./cmd/kb-indexer
+	go build -o bin/kb-indexer ./cmd/kb-indexer
+
+# Build llmrouter binary
+llmrouter:
+	@echo "Building llmrouter binary..."
+	go build -o bin/llmrouter ./cmd/llmrouter
 
 # Build all binaries
-binaries: worker router kb-indexer
+binaries: worker router kb-indexer llmrouter
 	@echo "All binaries built successfully"
 
 # Build and run the worker
@@ -112,6 +118,11 @@ run-light:
 run-router:
 	@echo "Building and running router..."
 	go run ./cmd/router
+
+# Run LLM router
+run-llmrouter:
+	@echo "Running LLM router..."
+	LLMROUTER_PORT=8085 go run ./cmd/llmrouter
 
 # Reindex artifacts
 reindex:
@@ -143,7 +154,7 @@ vet:
 clean:
 	@echo "Cleaning build artifacts..."
 	go clean ./...
-	rm -f worker router kb-indexer
+	rm -f worker router kb-indexer llmrouter
 	rm -rf ./hypotheses
 
 # Install development tools

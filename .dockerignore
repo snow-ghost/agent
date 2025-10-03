@@ -3,8 +3,7 @@
 .gitignore
 
 # Build artifacts
-router
-worker-bin
+bin/
 *.exe
 *.dll
 *.so
