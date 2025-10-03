@@ -15,6 +15,7 @@ import (
 
 // AnthropicProvider implements the Provider interface for Anthropic Claude API
 type AnthropicProvider struct {
+	*BaseProvider
 	client  *http.Client
 	baseURL string
 	apiKey  string
@@ -50,7 +51,11 @@ type AnthropicResponse struct {
 
 // NewAnthropicProvider creates a new Anthropic provider
 func NewAnthropicProvider(baseURL, apiKey string) *AnthropicProvider {
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &AnthropicProvider{
+		BaseProvider: NewBaseProvider(registry),
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -146,11 +151,18 @@ func (p *AnthropicProvider) Embed(ctx context.Context, mc registry.ModelConfig, 
 }
 
 // CreateAnthropicProviderFromConfig creates an Anthropic provider from model config
-func CreateAnthropicProviderFromConfig(mc registry.ModelConfig) (*AnthropicProvider, error) {
+func CreateAnthropicProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (*AnthropicProvider, error) {
 	apiKey := os.Getenv(mc.APIKeyEnv)
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key not found in environment variable %s", mc.APIKeyEnv)
 	}
 
-	return NewAnthropicProvider(mc.BaseURL, apiKey), nil
+	return &AnthropicProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+		baseURL: mc.BaseURL,
+		apiKey:  apiKey,
+	}, nil
 }

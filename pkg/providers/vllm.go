@@ -12,7 +12,9 @@ import (
 
 // VLLMProvider implements the Provider interface for vLLM (OpenAI-compatible)
 type VLLMProvider struct {
+	*BaseProvider
 	client *openai.Client
+	apiKey string
 }
 
 // NewVLLMProvider creates a new vLLM provider
@@ -22,8 +24,13 @@ func NewVLLMProvider(baseURL, apiKey string) *VLLMProvider {
 
 	client := openai.NewClientWithConfig(config)
 
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &VLLMProvider{
-		client: client,
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
 	}
 }
 
@@ -136,12 +143,21 @@ func (p *VLLMProvider) Embed(ctx context.Context, mc registry.ModelConfig, input
 }
 
 // CreateVLLMProviderFromConfig creates a vLLM provider from model config
-func CreateVLLMProviderFromConfig(mc registry.ModelConfig) (*VLLMProvider, error) {
+func CreateVLLMProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (*VLLMProvider, error) {
 	// vLLM typically doesn't require API keys, but we'll check if one is provided
 	apiKey := os.Getenv(mc.APIKeyEnv)
 	if apiKey == "" {
 		apiKey = "dummy-key" // vLLM often works without authentication
 	}
 
-	return NewVLLMProvider(mc.BaseURL, apiKey), nil
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = mc.BaseURL
+
+	client := openai.NewClientWithConfig(config)
+
+	return &VLLMProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
+	}, nil
 }

@@ -12,6 +12,7 @@ import (
 
 // OpenAIProvider implements the Provider interface for OpenAI-compatible APIs
 type OpenAIProvider struct {
+	*BaseProvider
 	client *openai.Client
 	apiKey string
 }
@@ -23,9 +24,13 @@ func NewOpenAIProvider(baseURL, apiKey string) *OpenAIProvider {
 
 	client := openai.NewClientWithConfig(config)
 
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &OpenAIProvider{
-		client: client,
-		apiKey: apiKey,
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
 	}
 }
 
@@ -146,11 +151,20 @@ func (p *OpenAIProvider) Embed(ctx context.Context, mc registry.ModelConfig, inp
 }
 
 // CreateOpenAIProviderFromConfig creates an OpenAI provider from model config
-func CreateOpenAIProviderFromConfig(mc registry.ModelConfig) (*OpenAIProvider, error) {
+func CreateOpenAIProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (*OpenAIProvider, error) {
 	apiKey := os.Getenv(mc.APIKeyEnv)
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key not found in environment variable %s", mc.APIKeyEnv)
 	}
 
-	return NewOpenAIProvider(mc.BaseURL, apiKey), nil
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = mc.BaseURL
+
+	client := openai.NewClientWithConfig(config)
+
+	return &OpenAIProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
+	}, nil
 }

@@ -14,6 +14,7 @@ import (
 
 // OllamaProvider implements the Provider interface for Ollama API
 type OllamaProvider struct {
+	*BaseProvider
 	client  *http.Client
 	baseURL string
 }
@@ -53,7 +54,11 @@ type OllamaEmbedResponse struct {
 
 // NewOllamaProvider creates a new Ollama provider
 func NewOllamaProvider(baseURL string) *OllamaProvider {
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &OllamaProvider{
+		BaseProvider: NewBaseProvider(registry),
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -201,6 +206,12 @@ func (p *OllamaProvider) Embed(ctx context.Context, mc registry.ModelConfig, inp
 }
 
 // CreateOllamaProviderFromConfig creates an Ollama provider from model config
-func CreateOllamaProviderFromConfig(mc registry.ModelConfig) *OllamaProvider {
-	return NewOllamaProvider(mc.BaseURL)
+func CreateOllamaProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) *OllamaProvider {
+	return &OllamaProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+		baseURL: mc.BaseURL,
+	}
 }

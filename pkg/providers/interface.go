@@ -3,8 +3,10 @@ package providers
 import (
 	"context"
 
+	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
+	"github.com/snow-ghost/agent/pkg/tokens"
 )
 
 // Provider defines the interface for LLM providers
@@ -14,6 +16,9 @@ type Provider interface {
 
 	// Embed generates embeddings for input texts
 	Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, core.Usage, error)
+
+	// GetCostCalculator returns the cost calculator for this provider
+	GetCostCalculator() *cost.Calculator
 }
 
 // ProviderFactory creates provider instances
@@ -46,4 +51,54 @@ func (m *MockUsageEstimator) EstimateCompletionTokens(text string) int {
 		estimatedTokens = 1
 	}
 	return estimatedTokens
+}
+
+// BaseProvider provides common functionality for all providers
+type BaseProvider struct {
+	costCalculator *cost.Calculator
+	tokenRegistry  *tokens.EncoderRegistry
+}
+
+// NewBaseProvider creates a new base provider
+func NewBaseProvider(registry *registry.Registry) *BaseProvider {
+	return &BaseProvider{
+		costCalculator: cost.NewCalculator(registry),
+		tokenRegistry:  tokens.GetDefaultRegistry(),
+	}
+}
+
+// GetCostCalculator returns the cost calculator
+func (b *BaseProvider) GetCostCalculator() *cost.Calculator {
+	return b.costCalculator
+}
+
+// EstimateUsage estimates token usage when not provided by the provider
+func (b *BaseProvider) EstimateUsage(messages []string, responseText string) core.Usage {
+	var totalInputTokens int
+	for _, msg := range messages {
+		if count, err := b.tokenRegistry.CountTokens("", msg); err == nil {
+			totalInputTokens += count
+		} else {
+			// Fallback to simple estimation
+			totalInputTokens += len(msg) / 4
+		}
+	}
+
+	var completionTokens int
+	if count, err := b.tokenRegistry.CountTokens("", responseText); err == nil {
+		completionTokens = count
+	} else {
+		// Fallback to simple estimation
+		completionTokens = len(responseText) / 4
+	}
+
+	if completionTokens < 1 {
+		completionTokens = 1
+	}
+
+	return core.Usage{
+		PromptTokens:     totalInputTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalInputTokens + completionTokens,
+	}
 }

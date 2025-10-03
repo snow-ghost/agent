@@ -12,7 +12,9 @@ import (
 
 // OpenRouterProvider implements the Provider interface for OpenRouter (OpenAI-compatible)
 type OpenRouterProvider struct {
+	*BaseProvider
 	client *openai.Client
+	apiKey string
 }
 
 // NewOpenRouterProvider creates a new OpenRouter provider
@@ -22,8 +24,13 @@ func NewOpenRouterProvider(baseURL, apiKey string) *OpenRouterProvider {
 
 	client := openai.NewClientWithConfig(config)
 
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &OpenRouterProvider{
-		client: client,
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
 	}
 }
 
@@ -136,11 +143,20 @@ func (p *OpenRouterProvider) Embed(ctx context.Context, mc registry.ModelConfig,
 }
 
 // CreateOpenRouterProviderFromConfig creates an OpenRouter provider from model config
-func CreateOpenRouterProviderFromConfig(mc registry.ModelConfig) (*OpenRouterProvider, error) {
+func CreateOpenRouterProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (*OpenRouterProvider, error) {
 	apiKey := os.Getenv(mc.APIKeyEnv)
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key not found in environment variable %s", mc.APIKeyEnv)
 	}
 
-	return NewOpenRouterProvider(mc.BaseURL, apiKey), nil
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = mc.BaseURL
+
+	client := openai.NewClientWithConfig(config)
+
+	return &OpenRouterProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
+	}, nil
 }

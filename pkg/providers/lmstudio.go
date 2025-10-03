@@ -12,7 +12,9 @@ import (
 
 // LMStudioProvider implements the Provider interface for LM Studio (OpenAI-compatible)
 type LMStudioProvider struct {
+	*BaseProvider
 	client *openai.Client
+	apiKey string
 }
 
 // NewLMStudioProvider creates a new LM Studio provider
@@ -22,8 +24,13 @@ func NewLMStudioProvider(baseURL, apiKey string) *LMStudioProvider {
 
 	client := openai.NewClientWithConfig(config)
 
+	// Create a default registry for cost calculation
+	registry := registry.GetDefaultRegistry()
+
 	return &LMStudioProvider{
-		client: client,
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
 	}
 }
 
@@ -136,12 +143,21 @@ func (p *LMStudioProvider) Embed(ctx context.Context, mc registry.ModelConfig, i
 }
 
 // CreateLMStudioProviderFromConfig creates an LM Studio provider from model config
-func CreateLMStudioProviderFromConfig(mc registry.ModelConfig) (*LMStudioProvider, error) {
+func CreateLMStudioProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (*LMStudioProvider, error) {
 	// LM Studio typically doesn't require API keys
 	apiKey := os.Getenv(mc.APIKeyEnv)
 	if apiKey == "" {
 		apiKey = "dummy-key" // LM Studio often works without authentication
 	}
 
-	return NewLMStudioProvider(mc.BaseURL, apiKey), nil
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = mc.BaseURL
+
+	client := openai.NewClientWithConfig(config)
+
+	return &LMStudioProvider{
+		BaseProvider: NewBaseProvider(registry),
+		client:       client,
+		apiKey:       apiKey,
+	}, nil
 }

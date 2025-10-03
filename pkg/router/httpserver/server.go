@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	port     string
-	logger   *slog.Logger
-	router   *http.ServeMux
-	registry *registry.Registry
+	port           string
+	logger         *slog.Logger
+	router         *http.ServeMux
+	registry       *registry.Registry
+	costCalculator *cost.Calculator
 }
 
 // NewServer creates a new HTTP server
@@ -30,10 +32,11 @@ func NewServer(port string, logger *slog.Logger) *Server {
 	}
 
 	s := &Server{
-		port:     port,
-		logger:   logger,
-		router:   http.NewServeMux(),
-		registry: reg,
+		port:           port,
+		logger:         logger,
+		router:         http.NewServeMux(),
+		registry:       reg,
+		costCalculator: cost.NewCalculator(reg),
 	}
 	s.setupRoutes()
 	return s
@@ -120,6 +123,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Provider:     "mock",
 		FinishReason: "stop",
 	}
+
+	// Add cost headers
+	s.addCostHeaders(w, req.Model, response.Usage)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -352,4 +358,20 @@ func (s *Server) writeError(w http.ResponseWriter, message, code string, statusC
 	}
 
 	json.NewEncoder(w).Encode(errorResp)
+}
+
+// addCostHeaders adds cost headers to the response
+func (s *Server) addCostHeaders(w http.ResponseWriter, modelID string, usage core.Usage) {
+	costResult, err := s.costCalculator.CalcCostForModel(modelID, usage)
+	if err != nil {
+		s.logger.Warn("failed to calculate cost", "error", err, "model", modelID)
+		// Add a fallback header to indicate cost calculation failed
+		w.Header().Set("X-Cost-Error", "calculation-failed")
+		return
+	}
+
+	headers := cost.FormatCostHeaders([]*cost.CostResult{costResult})
+	for key, value := range headers {
+		w.Header().Set(key, value)
+	}
 }

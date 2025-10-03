@@ -35,20 +35,20 @@ func (f *DefaultProviderFactory) CreateProvider(providerType string) (Provider, 
 }
 
 // CreateProviderFromConfig creates a provider instance from model configuration
-func (f *DefaultProviderFactory) CreateProviderFromConfig(mc registry.ModelConfig) (Provider, error) {
+func (f *DefaultProviderFactory) CreateProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (Provider, error) {
 	switch mc.Provider {
 	case "openai":
-		return CreateOpenAIProviderFromConfig(mc)
+		return CreateOpenAIProviderFromConfig(mc, registry)
 	case "anthropic":
-		return CreateAnthropicProviderFromConfig(mc)
+		return CreateAnthropicProviderFromConfig(mc, registry)
 	case "ollama":
-		return CreateOllamaProviderFromConfig(mc), nil
+		return CreateOllamaProviderFromConfig(mc, registry), nil
 	case "vllm":
-		return CreateVLLMProviderFromConfig(mc)
+		return CreateVLLMProviderFromConfig(mc, registry)
 	case "lmstudio":
-		return CreateLMStudioProviderFromConfig(mc)
+		return CreateLMStudioProviderFromConfig(mc, registry)
 	case "openrouter":
-		return CreateOpenRouterProviderFromConfig(mc)
+		return CreateOpenRouterProviderFromConfig(mc, registry)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", mc.Provider)
 	}
