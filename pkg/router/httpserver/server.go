@@ -7,22 +7,33 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	port   string
-	logger *slog.Logger
-	router *http.ServeMux
+	port     string
+	logger   *slog.Logger
+	router   *http.ServeMux
+	registry *registry.Registry
 }
 
 // NewServer creates a new HTTP server
 func NewServer(port string, logger *slog.Logger) *Server {
+	// Load registry
+	loader := registry.NewLoader("")
+	reg, err := loader.LoadRegistry()
+	if err != nil {
+		logger.Warn("failed to load registry, using default", "error", err)
+		reg = registry.GetDefaultRegistry()
+	}
+
 	s := &Server{
-		port:   port,
-		logger: logger,
-		router: http.NewServeMux(),
+		port:     port,
+		logger:   logger,
+		router:   http.NewServeMux(),
+		registry: reg,
 	}
 	s.setupRoutes()
 	return s
@@ -269,9 +280,34 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For now, return an empty list as requested
+	// Convert registry models to API models
+	var models []core.Model
+	for _, modelConfig := range s.registry.Models {
+		model := core.Model{
+			ID:       modelConfig.ID,
+			Provider: modelConfig.Provider,
+			Type:     modelConfig.Kind,
+			Metadata: map[string]string{
+				"base_url":      modelConfig.BaseURL,
+				"api_key_env":   modelConfig.APIKeyEnv,
+				"currency":      modelConfig.Pricing.Currency,
+				"input_per_1k":  fmt.Sprintf("%.6f", modelConfig.Pricing.InputPer1K),
+				"output_per_1k": fmt.Sprintf("%.6f", modelConfig.Pricing.OutputPer1K),
+				"max_rpm":       fmt.Sprintf("%d", modelConfig.MaxRPM),
+				"max_tpm":       fmt.Sprintf("%d", modelConfig.MaxTPM),
+			},
+		}
+
+		// Add tags to metadata
+		if len(modelConfig.Tags) > 0 {
+			model.Metadata["tags"] = fmt.Sprintf("%v", modelConfig.Tags)
+		}
+
+		models = append(models, model)
+	}
+
 	response := core.ModelsResponse{
-		Models: []core.Model{},
+		Models: models,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

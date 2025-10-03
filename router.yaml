@@ -1,0 +1,174 @@
+models:
+  - id: "openai:gpt-4o-mini"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.00015
+      output_per_1k: 0.0006
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 10000
+    max_tpm: 200000
+    tags: ["general", "fast"]
+
+  - id: "openai:gpt-4o"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.005
+      output_per_1k: 0.015
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 5000
+    max_tpm: 100000
+    tags: ["general", "advanced"]
+
+  - id: "openai:text-embedding-3-small"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    kind: "embed"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.00002
+      output_per_1k: 0.0
+    default_params:
+      dimensions: 1536
+    max_rpm: 10000
+    max_tpm: 1000000
+    tags: ["embed", "fast"]
+
+  - id: "openai:text-embedding-3-large"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    kind: "embed"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.00013
+      output_per_1k: 0.0
+    default_params:
+      dimensions: 3072
+    max_rpm: 10000
+    max_tpm: 1000000
+    tags: ["embed", "high-quality"]
+
+  - id: "anthropic:claude-3-5-sonnet-20241022"
+    provider: "anthropic"
+    base_url: "https://api.anthropic.com"
+    api_key_env: "ANTHROPIC_API_KEY"
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.003
+      output_per_1k: 0.015
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 5000
+    max_tpm: 100000
+    tags: ["general", "advanced"]
+
+  - id: "anthropic:claude-3-5-haiku-20241022"
+    provider: "anthropic"
+    base_url: "https://api.anthropic.com"
+    api_key_env: "ANTHROPIC_API_KEY"
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0008
+      output_per_1k: 0.004
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 10000
+    max_tpm: 200000
+    tags: ["general", "fast"]
+
+  - id: "ollama:llama3.2"
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+    api_key_env: ""
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0
+      output_per_1k: 0.0
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 1000
+    max_tpm: 10000
+    tags: ["local", "general"]
+
+  - id: "ollama:codellama"
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+    api_key_env: ""
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0
+      output_per_1k: 0.0
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 1000
+    max_tpm: 10000
+    tags: ["local", "code"]
+
+  - id: "vllm:llama-3.1-8b"
+    provider: "vllm"
+    base_url: "http://localhost:8000"
+    api_key_env: ""
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0
+      output_per_1k: 0.0
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 2000
+    max_tpm: 50000
+    tags: ["local", "general", "vllm"]
+
+  - id: "lmstudio:llama-3.1-8b"
+    provider: "lmstudio"
+    base_url: "http://localhost:1234"
+    api_key_env: ""
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0
+      output_per_1k: 0.0
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 1000
+    max_tpm: 20000
+    tags: ["local", "general", "lmstudio"]
+
+  - id: "openrouter:meta-llama/llama-3.1-8b-instruct"
+    provider: "openrouter"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0002
+      output_per_1k: 0.0002
+    default_params:
+      temperature: 0.7
+      max_tokens: 4096
+    max_rpm: 5000
+    max_tpm: 100000
+    tags: ["general", "openrouter"]

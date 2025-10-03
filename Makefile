@@ -95,8 +95,12 @@ llmrouter:
 	@echo "Building llmrouter binary..."
 	go build -o bin/llmrouter ./cmd/llmrouter
 
+# Create bin directory
+bin-dir:
+	@mkdir -p bin
+
 # Build all binaries
-binaries: worker router kb-indexer llmrouter
+binaries: bin-dir worker router kb-indexer llmrouter
 	@echo "All binaries built successfully"
 
 # Build and run the worker
@@ -154,7 +158,7 @@ vet:
 clean:
 	@echo "Cleaning build artifacts..."
 	go clean ./...
-	rm -f worker router kb-indexer llmrouter
+	rm -f bin/worker bin/router bin/kb-indexer bin/llmrouter
 	rm -rf ./hypotheses
 
 # Install development tools
