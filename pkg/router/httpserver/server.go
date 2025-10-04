@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/cache"
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
 	"github.com/snow-ghost/agent/pkg/registry"
@@ -23,6 +24,7 @@ type Server struct {
 	costCalculator    *cost.Calculator
 	modelRouter       *routing.ModelRouter
 	protectionManager *limiter.ProtectionManager
+	cacheManager      *cache.CacheManager
 }
 
 // NewServer creates a new HTTP server
@@ -35,6 +37,14 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		reg = registry.GetDefaultRegistry()
 	}
 
+	// Create cache manager
+	cacheConfig := cache.DefaultCacheConfig()
+	cacheManager, err := cache.NewCacheManager(cacheConfig)
+	if err != nil {
+		logger.Warn("failed to create cache manager, caching disabled", "error", err)
+		cacheManager = nil
+	}
+
 	s := &Server{
 		port:              port,
 		logger:            logger,
@@ -43,6 +53,7 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		costCalculator:    cost.NewCalculator(reg),
 		modelRouter:       routing.NewModelRouter(reg),
 		protectionManager: limiter.NewProtectionManager(reg),
+		cacheManager:      cacheManager,
 	}
 	s.setupRoutes()
 	return s
@@ -64,6 +75,7 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/costs", s.handleCosts)
 	v1.HandleFunc("/strategies", s.handleStrategies)
 	v1.HandleFunc("/protection", s.handleProtection)
+	v1.HandleFunc("/cache", s.handleCache)
 
 	s.router.Handle("/v1/", http.StripPrefix("/v1", v1))
 }
@@ -119,6 +131,32 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if caching is enabled and not streaming
+	cacheEnabled := req.Metadata["cache"] == "true" && !req.Stream
+	var cacheReq cache.CacheRequest
+	if cacheEnabled && s.cacheManager != nil {
+		cacheReq = cache.CacheRequest{
+			Model:       req.Model,
+			Messages:    req.Messages,
+			Temperature: req.Temperature,
+			TopP:        req.TopP,
+			MaxTokens:   req.MaxTokens,
+			Tools:       req.Tools,
+			Metadata:    req.Metadata,
+			Cache:       true,
+		}
+
+		// Check cache first
+		if entry, exists := s.cacheManager.Get(cacheReq); exists {
+			s.logger.Info("cache hit", "model", req.Model)
+			s.addCostHeaders(w, entry.Response.Model, entry.Response.Usage)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			json.NewEncoder(w).Encode(entry.Response)
+			return
+		}
+	}
+
 	// Select model using routing strategy
 	strategy := r.URL.Query().Get("strategy")
 	if strategy == "" {
@@ -145,6 +183,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Model:        selectedModel.ID,
 		Provider:     selectedModel.Provider,
 		FinishReason: "stop",
+	}
+
+	// Cache the response if enabled
+	if cacheEnabled && s.cacheManager != nil {
+		if err := s.cacheManager.Set(cacheReq, response); err != nil {
+			s.logger.Warn("failed to cache response", "error", err)
+		} else {
+			s.logger.Info("response cached", "model", selectedModel.ID)
+		}
+		w.Header().Set("X-Cache", "MISS")
+	} else {
+		w.Header().Set("X-Cache", "DISABLED")
 	}
 
 	// Add cost headers
@@ -409,6 +459,30 @@ func (s *Server) handleProtection(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleCache handles cache statistics and management requests
+func (s *Server) handleCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.cacheManager == nil {
+		s.writeError(w, "Cache not available", "CACHE_DISABLED", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get cache statistics
+	stats := s.cacheManager.Stats()
+
+	// Add cache status
+	stats["status"] = "enabled"
+	stats["size"] = s.cacheManager.GetCacheSize()
+	stats["keys"] = len(s.cacheManager.GetCacheKeys())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 // writeError writes an error response
