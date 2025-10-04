@@ -10,11 +10,14 @@ import (
 	"github.com/snow-ghost/agent/pkg/cache"
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
+	"github.com/snow-ghost/agent/pkg/observability"
 	"github.com/snow-ghost/agent/pkg/providers"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
 	"github.com/snow-ghost/agent/pkg/routing"
 	"github.com/snow-ghost/agent/pkg/streaming"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Server represents the HTTP server
@@ -27,6 +30,7 @@ type Server struct {
 	modelRouter       *routing.ModelRouter
 	protectionManager *limiter.ProtectionManager
 	cacheManager      *cache.CacheManager
+	observability     *observability.Manager
 }
 
 // NewServer creates a new HTTP server
@@ -47,6 +51,22 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		cacheManager = nil
 	}
 
+	// Create observability manager
+	obsConfig := observability.Config{
+		ServiceName:    "llmrouter",
+		ServiceVersion: "1.0.0",
+		Environment:    "development",
+		JaegerEndpoint: "http://localhost:14268/api/traces",
+		LogLevel:       "info",
+		LogFormat:      "json",
+	}
+
+	obsManager, err := observability.NewManager(obsConfig)
+	if err != nil {
+		logger.Warn("failed to create observability manager, using basic logging", "error", err)
+		obsManager = nil
+	}
+
 	s := &Server{
 		port:              port,
 		logger:            logger,
@@ -56,6 +76,7 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		modelRouter:       routing.NewModelRouter(reg),
 		protectionManager: limiter.NewProtectionManager(reg),
 		cacheManager:      cacheManager,
+		observability:     obsManager,
 	}
 	s.setupRoutes()
 	return s
@@ -80,6 +101,68 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/cache", s.handleCache)
 
 	s.router.Handle("/v1/", http.StripPrefix("/v1", v1))
+}
+
+// observabilityMiddleware adds observability to HTTP requests
+func (s *Server) observabilityMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Generate request ID
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = generateRequestID()
+		}
+
+		// Add request ID to context
+		ctx := observability.WithRequestID(r.Context(), requestID)
+		ctx = observability.WithCaller(ctx, r.Header.Get("X-Caller"))
+
+		// Start span if observability is available
+		if s.observability != nil {
+			var span trace.Span
+			ctx, span = s.observability.GetTracer().StartSpan(ctx, "http.request")
+			defer span.End()
+
+			// Add span attributes
+			span.SetAttributes(
+				attribute.String("http.method", r.Method),
+				attribute.String("http.url", r.URL.String()),
+				attribute.String("http.user_agent", r.UserAgent()),
+				attribute.String("request_id", requestID),
+			)
+		}
+
+		// Create response writer wrapper
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: 200}
+
+		// Call next handler
+		next.ServeHTTP(wrapped, r.WithContext(ctx))
+
+		// Record metrics and logs
+		duration := time.Since(start)
+		if s.observability != nil {
+			s.observability.GetLogger().LogRequest(
+				ctx, r.Method, r.URL.Path, wrapped.statusCode, duration, requestID,
+			)
+		}
+	}
+}
+
+// responseWriter wraps http.ResponseWriter to capture status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// generateRequestID generates a unique request ID
+func generateRequestID() string {
+	return fmt.Sprintf("req_%d", time.Now().UnixNano())
 }
 
 // Start starts the HTTP server
@@ -118,6 +201,65 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP llmrouter_uptime_seconds Server uptime in seconds\n")
 	fmt.Fprintf(w, "# TYPE llmrouter_uptime_seconds gauge\n")
 	fmt.Fprintf(w, "llmrouter_uptime_seconds 0\n")
+	fmt.Fprintf(w, "\n")
+
+	// LLM-specific metrics
+	fmt.Fprintf(w, "# HELP llm_requests_total Total number of LLM requests\n")
+	fmt.Fprintf(w, "# TYPE llm_requests_total counter\n")
+	fmt.Fprintf(w, "llm_requests_total{provider=\"mock\",model=\"mock\",status=\"success\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_latency_seconds LLM request latency in seconds\n")
+	fmt.Fprintf(w, "# TYPE llm_latency_seconds histogram\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.005\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.01\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.025\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.05\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.1\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.25\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"0.5\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"1\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"2.5\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"5\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"10\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_bucket{provider=\"mock\",model=\"mock\",le=\"+Inf\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_sum{provider=\"mock\",model=\"mock\"} 0\n")
+	fmt.Fprintf(w, "llm_latency_seconds_count{provider=\"mock\",model=\"mock\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_tokens_input_total Total number of input tokens processed\n")
+	fmt.Fprintf(w, "# TYPE llm_tokens_input_total counter\n")
+	fmt.Fprintf(w, "llm_tokens_input_total{provider=\"mock\",model=\"mock\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_tokens_output_total Total number of output tokens generated\n")
+	fmt.Fprintf(w, "# TYPE llm_tokens_output_total counter\n")
+	fmt.Fprintf(w, "llm_tokens_output_total{provider=\"mock\",model=\"mock\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_cost_total Total cost of LLM requests\n")
+	fmt.Fprintf(w, "# TYPE llm_cost_total counter\n")
+	fmt.Fprintf(w, "llm_cost_total{provider=\"mock\",model=\"mock\",currency=\"USD\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_cache_hits_total Total number of cache hits\n")
+	fmt.Fprintf(w, "# TYPE llm_cache_hits_total counter\n")
+	fmt.Fprintf(w, "llm_cache_hits_total 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_cache_misses_total Total number of cache misses\n")
+	fmt.Fprintf(w, "# TYPE llm_cache_misses_total counter\n")
+	fmt.Fprintf(w, "llm_cache_misses_total 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_retries_total Total number of retries\n")
+	fmt.Fprintf(w, "# TYPE llm_retries_total counter\n")
+	fmt.Fprintf(w, "llm_retries_total{provider=\"mock\",model=\"mock\",reason=\"429\"} 0\n")
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "# HELP llm_circuit_open_total Total number of circuit breaker opens\n")
+	fmt.Fprintf(w, "# TYPE llm_circuit_open_total counter\n")
+	fmt.Fprintf(w, "llm_circuit_open_total{provider=\"mock\",model=\"mock\"} 0\n")
 }
 
 // handleChat handles chat completion requests
@@ -132,6 +274,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Invalid JSON", "INVALID_JSON", http.StatusBadRequest)
 		return
 	}
+
+	ctx := r.Context()
+	requestID := observability.GetRequestIDFromContext(ctx)
+	caller := observability.GetCallerFromContext(ctx)
 
 	// Check if caching is enabled and not streaming
 	cacheEnabled := req.Metadata["cache"] == "true" && !req.Stream
@@ -150,7 +296,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 		// Check cache first
 		if entry, exists := s.cacheManager.Get(cacheReq); exists {
-			s.logger.Info("cache hit", "model", req.Model)
+			if s.observability != nil {
+				s.observability.RecordCacheMetrics(true)
+				s.observability.LogCacheOperation(ctx, "get", true, requestID)
+			}
+			s.logger.Info("cache hit", "model", req.Model, "request_id", requestID)
 			s.addCostHeaders(w, entry.Response.Model, entry.Response.Usage)
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Cache", "HIT")
@@ -165,14 +315,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		strategy = "tag-based" // Default strategy
 	}
 
-	selectedModel, err := s.modelRouter.SelectModel(r.Context(), strategy, req.Metadata)
+	selectedModel, err := s.modelRouter.SelectModel(ctx, strategy, req.Metadata)
 	if err != nil {
-		s.logger.Error("model selection failed", "error", err, "strategy", strategy)
+		s.logger.Error("model selection failed", "error", err, "strategy", strategy, "request_id", requestID)
 		s.writeError(w, "Model selection failed", "MODEL_SELECTION_FAILED", http.StatusInternalServerError)
 		return
 	}
 
-	s.logger.Info("model selected", "model", selectedModel.ID, "strategy", strategy, "domain", req.Metadata["task_domain"])
+	// Start LLM request span
+	var span trace.Span
+	if s.observability != nil {
+		ctx, span = s.observability.StartRequestSpan(ctx, caller, selectedModel.ID, selectedModel.Provider, requestID)
+		defer span.End()
+	}
+
+	s.logger.Info("model selected", "model", selectedModel.ID, "strategy", strategy, "domain", req.Metadata["task_domain"], "request_id", requestID)
 
 	// For now, return a mock response with selected model info
 	response := core.ChatResponse{
@@ -187,12 +344,33 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		FinishReason: "stop",
 	}
 
+	// Calculate cost
+	costResult, err := s.costCalculator.CalcCostForModel(selectedModel.ID, response.Usage)
+	if err != nil {
+		s.logger.Warn("failed to calculate cost", "error", err, "request_id", requestID)
+		costResult = &cost.CostResult{TotalCost: 0, Currency: "USD"}
+	}
+
+	// Record metrics and logs
+	if s.observability != nil {
+		s.observability.RecordRequestMetrics(
+			selectedModel.Provider, selectedModel.ID, "success",
+			time.Since(time.Now()), // Mock duration
+			response.Usage.PromptTokens, response.Usage.CompletionTokens,
+			costResult.TotalCost, costResult.Currency,
+		)
+		s.observability.LogRequestCompletion(
+			ctx, selectedModel.Provider, selectedModel.ID, "success",
+			time.Since(time.Now()), response.Usage.TotalTokens, costResult.TotalCost, requestID,
+		)
+	}
+
 	// Cache the response if enabled
 	if cacheEnabled && s.cacheManager != nil {
 		if err := s.cacheManager.Set(cacheReq, response); err != nil {
-			s.logger.Warn("failed to cache response", "error", err)
+			s.logger.Warn("failed to cache response", "error", err, "request_id", requestID)
 		} else {
-			s.logger.Info("response cached", "model", selectedModel.ID)
+			s.logger.Info("response cached", "model", selectedModel.ID, "request_id", requestID)
 		}
 		w.Header().Set("X-Cache", "MISS")
 	} else {
