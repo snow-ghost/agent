@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/accounting"
 	"github.com/snow-ghost/agent/pkg/cache"
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
@@ -31,6 +33,7 @@ type Server struct {
 	protectionManager *limiter.ProtectionManager
 	cacheManager      *cache.CacheManager
 	observability     *observability.Manager
+	accounting        *accounting.Manager
 }
 
 // NewServer creates a new HTTP server
@@ -67,6 +70,18 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		obsManager = nil
 	}
 
+	// Create accounting manager
+	accountingConfig := accounting.Config{
+		UseSQLite: false, // Use in-memory for now
+		DBPath:    "costs.db",
+	}
+
+	accountingManager, err := accounting.NewManager(accountingConfig)
+	if err != nil {
+		logger.Warn("failed to create accounting manager, cost tracking disabled", "error", err)
+		accountingManager = nil
+	}
+
 	s := &Server{
 		port:              port,
 		logger:            logger,
@@ -77,6 +92,7 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		protectionManager: limiter.NewProtectionManager(reg),
 		cacheManager:      cacheManager,
 		observability:     obsManager,
+		accounting:        accountingManager,
 	}
 	s.setupRoutes()
 	return s
@@ -279,6 +295,20 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	requestID := observability.GetRequestIDFromContext(ctx)
 	caller := observability.GetCallerFromContext(ctx)
 
+	// Check budget if specified
+	if s.accounting != nil {
+		budgetHeader := r.Header.Get("X-Budget-Amount")
+		if budgetHeader != "" {
+			budgetInfo, err := s.accounting.CheckBudget(caller, budgetHeader)
+			if err != nil {
+				s.logger.Warn("failed to check budget", "error", err, "request_id", requestID)
+			} else if budgetInfo.Exceeded {
+				s.writeError(w, "Budget exceeded", "BUDGET_EXCEEDED", http.StatusPaymentRequired)
+				return
+			}
+		}
+	}
+
 	// Check if caching is enabled and not streaming
 	cacheEnabled := req.Metadata["cache"] == "true" && !req.Stream
 	var cacheReq cache.CacheRequest
@@ -363,6 +393,19 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			ctx, selectedModel.Provider, selectedModel.ID, "success",
 			time.Since(time.Now()), response.Usage.TotalTokens, costResult.TotalCost, requestID,
 		)
+	}
+
+	// Record cost in accounting
+	if s.accounting != nil {
+		err := s.accounting.RecordLLMCost(
+			caller, selectedModel.Provider, selectedModel.ID, requestID,
+			response.Usage.PromptTokens, response.Usage.CompletionTokens,
+			costResult.InputCost, costResult.OutputCost, costResult.TotalCost,
+			costResult.Currency,
+		)
+		if err != nil {
+			s.logger.Warn("failed to record cost", "error", err, "request_id", requestID)
+		}
 	}
 
 	// Cache the response if enabled
@@ -543,33 +586,6 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleCosts handles cost information requests
-func (s *Server) handleCosts(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse query parameters
-	from := r.URL.Query().Get("from")
-	to := r.URL.Query().Get("to")
-	groupBy := r.URL.Query().Get("groupBy")
-
-	// For now, return empty costs
-	response := core.CostsResponse{
-		Costs: []core.CostEntry{},
-		Summary: map[string]interface{}{
-			"from":       from,
-			"to":         to,
-			"group_by":   groupBy,
-			"total_cost": 0.0,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
 // handleStrategies handles strategy listing requests
 func (s *Server) handleStrategies(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -633,6 +649,105 @@ func (s *Server) handleCache(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// handleCosts handles cost reporting requests
+func (s *Server) handleCosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.accounting == nil {
+		s.writeError(w, "Cost tracking not available", "ACCOUNTING_DISABLED", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+	caller := r.URL.Query().Get("caller")
+	provider := r.URL.Query().Get("provider")
+	model := r.URL.Query().Get("model")
+	currency := r.URL.Query().Get("currency")
+	groupBy := r.URL.Query().Get("groupBy")
+	format := r.URL.Query().Get("format")
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	// Parse time range
+	var from, to *time.Time
+	if fromStr != "" {
+		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
+			from = &t
+		}
+	}
+	if toStr != "" {
+		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
+			to = &t
+		}
+	}
+
+	// Parse pagination
+	limit := 0
+	offset := 0
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
+
+	// Build filter
+	filter := accounting.CostFilter{
+		From:     from,
+		To:       to,
+		Caller:   caller,
+		Provider: provider,
+		Model:    model,
+		Currency: currency,
+		GroupBy:  groupBy,
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	// Determine format
+	exportFormat := accounting.ExportFormatJSON
+	if format == "csv" {
+		exportFormat = accounting.ExportFormatCSV
+	}
+
+	// Generate report
+	if groupBy != "" || format == "csv" {
+		// Export format
+		data, err := s.accounting.ExportCosts(filter, exportFormat)
+		if err != nil {
+			s.writeError(w, "Failed to export costs", "EXPORT_FAILED", http.StatusInternalServerError)
+			return
+		}
+
+		if format == "csv" {
+			w.Header().Set("Content-Type", "text/csv")
+			w.Header().Set("Content-Disposition", "attachment; filename=costs.csv")
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+		}
+		w.Write(data)
+	} else {
+		// JSON report
+		report, err := s.accounting.GetCostReport(filter)
+		if err != nil {
+			s.writeError(w, "Failed to get cost report", "REPORT_FAILED", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(report)
+	}
 }
 
 // writeError writes an error response
