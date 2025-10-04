@@ -8,17 +8,21 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/pkg/cost"
+	"github.com/snow-ghost/agent/pkg/limiter"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
+	"github.com/snow-ghost/agent/pkg/routing"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	port           string
-	logger         *slog.Logger
-	router         *http.ServeMux
-	registry       *registry.Registry
-	costCalculator *cost.Calculator
+	port              string
+	logger            *slog.Logger
+	router            *http.ServeMux
+	registry          *registry.Registry
+	costCalculator    *cost.Calculator
+	modelRouter       *routing.ModelRouter
+	protectionManager *limiter.ProtectionManager
 }
 
 // NewServer creates a new HTTP server
@@ -32,11 +36,13 @@ func NewServer(port string, logger *slog.Logger) *Server {
 	}
 
 	s := &Server{
-		port:           port,
-		logger:         logger,
-		router:         http.NewServeMux(),
-		registry:       reg,
-		costCalculator: cost.NewCalculator(reg),
+		port:              port,
+		logger:            logger,
+		router:            http.NewServeMux(),
+		registry:          reg,
+		costCalculator:    cost.NewCalculator(reg),
+		modelRouter:       routing.NewModelRouter(reg),
+		protectionManager: limiter.NewProtectionManager(reg),
 	}
 	s.setupRoutes()
 	return s
@@ -56,6 +62,8 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/embed", s.handleEmbed)
 	v1.HandleFunc("/models", s.handleModels)
 	v1.HandleFunc("/costs", s.handleCosts)
+	v1.HandleFunc("/strategies", s.handleStrategies)
+	v1.HandleFunc("/protection", s.handleProtection)
 
 	s.router.Handle("/v1/", http.StripPrefix("/v1", v1))
 }
@@ -111,21 +119,36 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For now, return a mock response
+	// Select model using routing strategy
+	strategy := r.URL.Query().Get("strategy")
+	if strategy == "" {
+		strategy = "tag-based" // Default strategy
+	}
+
+	selectedModel, err := s.modelRouter.SelectModel(r.Context(), strategy, req.Metadata)
+	if err != nil {
+		s.logger.Error("model selection failed", "error", err, "strategy", strategy)
+		s.writeError(w, "Model selection failed", "MODEL_SELECTION_FAILED", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("model selected", "model", selectedModel.ID, "strategy", strategy, "domain", req.Metadata["task_domain"])
+
+	// For now, return a mock response with selected model info
 	response := core.ChatResponse{
-		Text: "Hello! This is a mock response from the LLM router.",
+		Text: fmt.Sprintf("Hello! This is a mock response from the LLM router using model %s (strategy: %s).", selectedModel.ID, strategy),
 		Usage: core.Usage{
 			PromptTokens:     10,
 			CompletionTokens: 15,
 			TotalTokens:      25,
 		},
-		Model:        req.Model,
-		Provider:     "mock",
+		Model:        selectedModel.ID,
+		Provider:     selectedModel.Provider,
 		FinishReason: "stop",
 	}
 
 	// Add cost headers
-	s.addCostHeaders(w, req.Model, response.Usage)
+	s.addCostHeaders(w, selectedModel.ID, response.Usage)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -341,6 +364,47 @@ func (s *Server) handleCosts(w http.ResponseWriter, r *http.Request) {
 			"group_by":   groupBy,
 			"total_cost": 0.0,
 		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleStrategies handles strategy listing requests
+func (s *Server) handleStrategies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	strategies := s.modelRouter.GetAvailableStrategies()
+
+	response := map[string]interface{}{
+		"strategies": strategies,
+		"default":    "tag-based",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleProtection handles protection mechanism statistics requests
+func (s *Server) handleProtection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get model ID from query parameter
+	modelID := r.URL.Query().Get("model")
+
+	var response map[string]interface{}
+	if modelID != "" {
+		// Get stats for specific model
+		response = s.protectionManager.GetStats(modelID)
+	} else {
+		// Get stats for all models
+		response = s.protectionManager.GetAllStats()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

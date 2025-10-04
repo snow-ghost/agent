@@ -90,6 +90,16 @@ func (l *Loader) SaveRegistry(registry *Registry) error {
 	return nil
 }
 
+// FindModel finds a model by ID in the registry
+func (r *Registry) FindModel(modelID string) *ModelConfig {
+	for _, model := range r.Models {
+		if model.ID == modelID {
+			return &model
+		}
+	}
+	return nil
+}
+
 // GetDefaultRegistry returns a registry with some default models
 func GetDefaultRegistry() *Registry {
 	return &Registry{
@@ -187,6 +197,44 @@ func GetDefaultRegistry() *Registry {
 				MaxRPM: 1000,
 				MaxTPM: 10000,
 				Tags:   []string{"local", "general"},
+			},
+			{
+				ID:        "openai:gpt-4o-mini",
+				Provider:  "openai",
+				BaseURL:   "https://api.openai.com/v1",
+				APIKeyEnv: "OPENAI_API_KEY",
+				Kind:      "chat",
+				Pricing: Pricing{
+					Currency:    "USD",
+					InputPer1K:  0.00015,
+					OutputPer1K: 0.0006,
+				},
+				DefaultParams: map[string]interface{}{
+					"temperature": 0.3,
+					"max_tokens":  4096,
+				},
+				MaxRPM: 10000,
+				MaxTPM: 200000,
+				Tags:   []string{"code", "programming", "fast"},
+			},
+			{
+				ID:        "anthropic:claude-3-5-sonnet-20241022",
+				Provider:  "anthropic",
+				BaseURL:   "https://api.anthropic.com",
+				APIKeyEnv: "ANTHROPIC_API_KEY",
+				Kind:      "chat",
+				Pricing: Pricing{
+					Currency:    "USD",
+					InputPer1K:  0.003,
+					OutputPer1K: 0.015,
+				},
+				DefaultParams: map[string]interface{}{
+					"temperature": 0.3,
+					"max_tokens":  4096,
+				},
+				MaxRPM: 5000,
+				MaxTPM: 100000,
+				Tags:   []string{"code", "programming", "advanced"},
 			},
 		},
 	}
