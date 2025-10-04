@@ -48,7 +48,7 @@ services:
       - WORKER_PORT=8082
       - HYPOTHESES_DIR=/app/hypotheses
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - LLM_MODE=${LLM_MODE:-mock}
+      - LLM_MODE=${LLM_MODE:-router}
       - POLICY_ALLOW_TOOLS=${POLICY_ALLOW_TOOLS:-true}
       - SANDBOX_MEM_MB=${SANDBOX_MEM_MB:-128}
       - TASK_TIMEOUT=${TASK_TIMEOUT:-30s}
@@ -61,12 +61,18 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
       - INDEX_ON_START=${INDEX_ON_START:-true}
+      # LLM Router configuration
+      - LLM_ROUTER_URL=http://llmrouter:8090
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-openai:gpt-4o-mini}
+      - MODEL_TAG=${MODEL_TAG:-general}
     volumes:
       - ./hypotheses:/app/hypotheses
       - ./artifacts:/app/artifacts:ro
       - ./router.yaml:/app/router.yaml:ro
     networks:
       - agent_network
+    depends_on:
+      - llmrouter
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
@@ -110,7 +116,7 @@ services:
     depends_on:
       - router
     networks:
-      - agent-network
+      - agent_network
     restart: unless-stopped
     profiles:
       - with-nginx

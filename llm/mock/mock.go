@@ -76,6 +76,13 @@ func (m *MockLLM) Propose(ctx context.Context, task core.Task) (algo string, tes
 	return algo, tests, criteria, nil
 }
 
+// ProposeWithCaller returns a pre-prepared WASM module for sorting with basic tests and criteria
+func (m *MockLLM) ProposeWithCaller(ctx context.Context, task core.Task, caller string) (algo string, tests []core.TestCase, criteria []string, err error) {
+	// For mock, just call the regular Propose method
+	// In a real implementation, caller would be used for cost tracking
+	return m.Propose(ctx, task)
+}
+
 // GetWASMModule returns the pre-prepared WASM module for the proposed algorithm
 func (m *MockLLM) GetWASMModule(algo string) ([]byte, error) {
 	if algo == "wasm-sort-v1" {

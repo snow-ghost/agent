@@ -1,0 +1,19 @@
+{
+  "id": "test-sort-001",
+  "domain": "algorithms",
+  "description": "Sort an array of integers in ascending order",
+  "spec": {
+    "input_format": "json",
+    "output_format": "json",
+    "constraints": ["sorted_non_decreasing", "permutes"]
+  },
+  "input": "{\"numbers\": [3, 1, 4, 1, 5]}",
+  "budget": {
+    "timeout": "30s",
+    "max_iterations": 10
+  },
+  "flags": {
+    "requires_sandbox": true,
+    "max_complexity": 3
+  }
+}

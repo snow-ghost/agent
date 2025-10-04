@@ -2,6 +2,7 @@ package heavy
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -64,9 +65,13 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 
 	// 2) Request LLM (algorithm, tests, criteria)
 	slog.InfoContext(ctx, "requesting LLM proposal", "task_id", task.ID)
-	algo, tests, criteria, err := h.llm.Propose(ctx, task)
+
+	// Generate caller for cost tracking
+	caller := fmt.Sprintf("worker/%s/%s", task.Domain, task.ID)
+
+	algo, tests, criteria, err := h.llm.ProposeWithCaller(ctx, task, caller)
 	if err != nil {
-		slog.ErrorContext(ctx, "LLM proposal failed", "error", err, "task_id", task.ID)
+		slog.ErrorContext(ctx, "LLM proposal failed", "error", err, "task_id", task.ID, "caller", caller)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
 		return core.Result{Success: false}, err
 	}

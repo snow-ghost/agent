@@ -18,6 +18,11 @@ type Config struct {
 	HypothesesDir    string
 	ArtifactsDir     string
 	LogLevel         string
+
+	// LLM Router configuration
+	LLMRouterURL string
+	DefaultModel string
+	ModelTag     string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -32,6 +37,11 @@ func LoadConfig() *Config {
 		HypothesesDir:    getEnv("HYPOTHESES_DIR", "./hypotheses"),
 		ArtifactsDir:     getEnv("ARTIFACTS_DIR", "./artifacts"),
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
+
+		// LLM Router configuration
+		LLMRouterURL: getEnv("LLM_ROUTER_URL", "http://llmrouter:8090"),
+		DefaultModel: getEnv("DEFAULT_MODEL", "openai:gpt-4o-mini"),
+		ModelTag:     getEnv("MODEL_TAG", "general"),
 	}
 
 	return config

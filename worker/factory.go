@@ -2,18 +2,39 @@ package worker
 
 import (
 	"os"
+	"time"
 
 	"github.com/snow-ghost/agent/core"
 	"github.com/snow-ghost/agent/interp/wasm"
 	kbfs "github.com/snow-ghost/agent/kb/fs"
 	kbmem "github.com/snow-ghost/agent/kb/memory"
 	llmmock "github.com/snow-ghost/agent/llm/mock"
+	llmclient "github.com/snow-ghost/agent/pkg/llm/client"
 	"github.com/snow-ghost/agent/testkit"
 	"github.com/snow-ghost/agent/worker/heavy"
 	"github.com/snow-ghost/agent/worker/light"
 	"github.com/snow-ghost/agent/worker/mutate"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
+
+// createLLMClient creates an LLM client based on configuration
+func createLLMClient(config *Config) core.LLMClient {
+	if config.LLMMode == "router" && config.LLMRouterURL != "" {
+		// Create HTTP client for LLM router
+		client := llmclient.NewClient(llmclient.Config{
+			BaseURL:      config.LLMRouterURL,
+			DefaultModel: config.DefaultModel,
+			ModelTag:     config.ModelTag,
+			Timeout:      30 * time.Second,
+			RetryCount:   3,
+			RetryDelay:   1 * time.Second,
+		})
+		return llmclient.NewAdapter(client)
+	}
+
+	// Fallback to mock LLM
+	return llmmock.NewMockLLM()
+}
 
 // NewWorker creates a worker based on the WORKER_TYPE environment variable
 func NewWorker(config *Config) (Worker, error) {
@@ -40,7 +61,7 @@ func NewWorker(config *Config) (Worker, error) {
 
 	case WorkerTypeHeavy:
 		// Create heavy worker components
-		llm := llmmock.NewMockLLM()
+		llm := createLLMClient(config)
 		interp := wasm.NewInterpreter()
 		runner := testkit.NewRunner()
 		fitness := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.0)
@@ -51,7 +72,7 @@ func NewWorker(config *Config) (Worker, error) {
 
 	default:
 		// Default to heavy worker
-		llm := llmmock.NewMockLLM()
+		llm := createLLMClient(config)
 		interp := wasm.NewInterpreter()
 		runner := testkit.NewRunner()
 		fitness := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.0)

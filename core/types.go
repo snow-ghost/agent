@@ -51,13 +51,14 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 }
 
 type Task struct {
-	ID        string
-	Domain    string
-	Spec      Spec // criteria/contracts
-	Input     json.RawMessage
-	Budget    Budget
-	CreatedAt time.Time
-	Flags     TaskFlags // routing and processing flags
+	ID          string
+	Domain      string
+	Description string
+	Spec        Spec // criteria/contracts
+	Input       json.RawMessage
+	Budget      Budget
+	CreatedAt   time.Time
+	Flags       TaskFlags // routing and processing flags
 }
 
 // TaskFlags contains flags for task routing and processing

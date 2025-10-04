@@ -17,6 +17,32 @@ type KnowledgeBase interface {
 
 type LLMClient interface {
 	Propose(ctx context.Context, task Task) (algo string, tests []TestCase, criteria []string, err error)
+	ProposeWithCaller(ctx context.Context, task Task, caller string) (algo string, tests []TestCase, criteria []string, err error)
+}
+
+// LLMOptions holds options for LLM requests
+type LLMOptions struct {
+	Model        string
+	Temperature  float32
+	MaxTokens    int
+	Caller       string
+	SystemPrompt string
+	Tools        []Tool
+}
+
+// Tool represents a tool that can be called by the LLM
+type Tool struct {
+	Type        string
+	Name        string
+	Description string
+	Parameters  map[string]interface{}
+}
+
+// ToolCall represents a tool call made by the LLM
+type ToolCall struct {
+	ID   string
+	Name string
+	Args string
 }
 
 type Interpreter interface {
