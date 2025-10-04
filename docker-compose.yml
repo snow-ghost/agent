@@ -1,45 +1,33 @@
 version: '3.8'
 
 services:
-  # Router service - routes tasks to appropriate workers
-  router:
-    build: .
-    command: ["./router"]
-    ports:
-      - "8083:8083"
-    environment:
-      - ROUTER_PORT=8083
-      - LIGHT_WORKER_URL=http://light-worker:8081
-      - HEAVY_WORKER_URL=http://heavy-worker:8082
-    depends_on:
-      - light-worker
-      - heavy-worker
-    networks:
-      - agent-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Light worker - KB-only processing
   light-worker:
-    build: .
-    command: ["./worker-bin"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: light-worker
     ports:
       - "8081:8081"
     environment:
       - WORKER_TYPE=light
       - WORKER_PORT=8081
-      - LOG_LEVEL=info
       - HYPOTHESES_DIR=/app/hypotheses
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - ARTIFACTS_DIR=/app/artifacts
+      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-mock}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-memory}
+      - QDRANT_URL=${QDRANT_URL:-}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - INDEX_ON_START=${INDEX_ON_START:-true}
     volumes:
-      - hypotheses-data:/app/hypotheses
-      - artifacts-data:/app/artifacts
+      - ./hypotheses:/app/hypotheses
+      - ./artifacts:/app/artifacts:ro
+      - ./router.yaml:/app/router.yaml:ro
     networks:
-      - agent-network
+      - agent_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
@@ -47,26 +35,38 @@ services:
       timeout: 10s
       retries: 3
 
-  # Heavy worker - LLM+WASM processing
+  # Heavy worker (LLM+WASM+KB)
   heavy-worker:
-    build: .
-    command: ["./worker-bin"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: heavy-worker
     ports:
       - "8082:8082"
     environment:
       - WORKER_TYPE=heavy
       - WORKER_PORT=8082
-      - LOG_LEVEL=info
-      - LLM_MODE=mock
       - HYPOTHESES_DIR=/app/hypotheses
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LLM_MODE=${LLM_MODE:-mock}
+      - POLICY_ALLOW_TOOLS=${POLICY_ALLOW_TOOLS:-true}
+      - SANDBOX_MEM_MB=${SANDBOX_MEM_MB:-128}
+      - TASK_TIMEOUT=${TASK_TIMEOUT:-30s}
       - ARTIFACTS_DIR=/app/artifacts
       - SANDBOX_MEM_MB=64
       - TASK_TIMEOUT=60s
+      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-mock}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-memory}
+      - QDRANT_URL=${QDRANT_URL:-}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - INDEX_ON_START=${INDEX_ON_START:-true}
     volumes:
-      - hypotheses-data:/app/hypotheses
-      - artifacts-data:/app/artifacts
+      - ./hypotheses:/app/hypotheses
+      - ./artifacts:/app/artifacts:ro
+      - ./router.yaml:/app/router.yaml:ro
     networks:
-      - agent-network
+      - agent_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
@@ -74,6 +74,32 @@ services:
       timeout: 10s
       retries: 3
 
+  # Router (capability-based routing)
+  router:
+    build:
+      context: .
+      dockerfile: Dockerfile.router
+    container_name: router
+    ports:
+      - "8083:8083"
+    environment:
+      - ROUTER_PORT=8083
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LIGHT_WORKER_URL=http://light-worker:8081
+      - HEAVY_WORKER_URL=http://heavy-worker:8082
+    volumes:
+      - ./router.yaml:/app/router.yaml:ro
+    networks:
+      - agent_network
+    depends_on:
+      - light-worker
+      - heavy-worker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      
   # Optional: Nginx reverse proxy for load balancing
   nginx:
     image: nginx:alpine
@@ -89,12 +115,140 @@ services:
     profiles:
       - with-nginx
 
+  # LLM Router (REST API + SSE)
+  llmrouter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llmrouter
+    ports:
+      - "8090:8090"
+    environment:
+      # API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      
+      # Base URLs
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000}
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://lmstudio:1234}
+      
+      # Service Configuration
+      - LLMROUTER_PORT=8090
+      - CONFIG=/config/router.yaml
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # Observability
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - SERVICE_NAME=llmrouter
+      - SERVICE_VERSION=1.0.0
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      
+      # Accounting
+      - USE_SQLITE=${USE_SQLITE:-false}
+      - DB_PATH=${DB_PATH:-/data/costs.db}
+      
+      # Cache
+      - CACHE_MAX_SIZE=${CACHE_MAX_SIZE:-1000}
+      - CACHE_DEFAULT_TTL=${CACHE_DEFAULT_TTL:-5m}
+      
+      # Rate Limiting
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - CIRCUIT_BREAKER_ENABLED=${CIRCUIT_BREAKER_ENABLED:-true}
+      
+    volumes:
+      # Mount configuration file
+      - ./router.yaml:/config/router.yaml:ro
+      
+      # Mount data directory for SQLite (if enabled)
+      - llmrouter_data:/data
+      
+      # Mount logs directory (optional)
+      - llmrouter_logs:/logs
+      
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+      
+    restart: unless-stopped
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Network configuration
+    networks:
+      - agent_network
+
+  # Optional: Jaeger for tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - agent_network
+    profiles:
+      - tracing
+
+  # Optional: Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - agent_network
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - agent_network
+    profiles:
+      - monitoring
+
 volumes:
-  hypotheses-data:
+  llmrouter_data:
     driver: local
-  artifacts-data:
+  llmrouter_logs:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:
-  agent-network:
+  agent_network:
     driver: bridge

@@ -14,6 +14,12 @@ import (
 )
 
 func main() {
+	// Check if this is a healthcheck command
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		healthcheck()
+		return
+	}
+
 	// Load configuration
 	config := worker.LoadConfig()
 

@@ -181,23 +181,59 @@ check: fmt vet lint test
 # Docker operations
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t agent-worker .
+	docker build -t llmrouter:latest .
+
+docker-build-no-cache:
+	@echo "Building Docker image (no cache)..."
+	docker build --no-cache -t llmrouter:latest .
 
 docker-up:
 	@echo "Starting services with docker-compose..."
 	docker-compose up -d
 
+docker-up-build:
+	@echo "Building and starting services with docker-compose..."
+	docker-compose up --build -d
+
 docker-down:
 	@echo "Stopping services with docker-compose..."
 	docker-compose down
+
+docker-down-volumes:
+	@echo "Stopping services and removing volumes..."
+	docker-compose down -v
 
 docker-logs:
 	@echo "Showing logs from all services..."
 	docker-compose logs -f
 
-docker-up-nginx:
-	@echo "Starting services with nginx..."
-	docker-compose --profile with-nginx up -d
+docker-logs-llmrouter:
+	@echo "Showing logs from llmrouter service..."
+	docker-compose logs -f llmrouter
+
+docker-status:
+	@echo "Checking service status..."
+	docker-compose ps
+
+docker-health:
+	@echo "Checking service health..."
+	@docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+
+docker-shell:
+	@echo "Opening shell in llmrouter container..."
+	docker-compose exec llmrouter /bin/sh
+
+docker-up-tracing:
+	@echo "Starting services with tracing..."
+	docker-compose --profile tracing up -d
+
+docker-up-monitoring:
+	@echo "Starting services with monitoring..."
+	docker-compose --profile monitoring up -d
+
+docker-up-all:
+	@echo "Starting all services (including monitoring and tracing)..."
+	docker-compose --profile tracing --profile monitoring up -d
 
 # CI pipeline
 ci: deps fmt vet lint test build

@@ -41,3 +41,20 @@ hypotheses/
 Dockerfile*
 docker-compose*.yml
 .dockerignore
+
+# Environment files
+.env
+.env.*
+env.example
+
+# Monitoring configs
+prometheus.yml
+grafana/
+
+# Data directories
+data/
+logs/
+
+# Test artifacts
+coverage.out
+*.test
