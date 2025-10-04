@@ -10,9 +10,11 @@ import (
 	"github.com/snow-ghost/agent/pkg/cache"
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
+	"github.com/snow-ghost/agent/pkg/providers"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
 	"github.com/snow-ghost/agent/pkg/routing"
+	"github.com/snow-ghost/agent/pkg/streaming"
 )
 
 // Server represents the HTTP server
@@ -211,77 +213,47 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if streaming is requested
-	stream := r.URL.Query().Get("stream")
-	if stream != "1" {
-		// Redirect to non-streaming endpoint
-		s.handleChat(w, r)
-		return
-	}
-
 	var req core.ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid JSON", "INVALID_JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Set up SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	// Send streaming response
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+	// Create SSE writer
+	sseWriter, err := streaming.NewSSEWriter(w)
+	if err != nil {
+		s.logger.Error("failed to create SSE writer", "error", err)
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
 		return
 	}
 
-	// Mock streaming response
-	chunks := []string{"Hello", "! This", " is a", " mock", " streaming", " response", "."}
-
-	for i, chunk := range chunks {
-		streamChunk := core.StreamChunk{
-			ID:      fmt.Sprintf("chunk-%d", i),
-			Object:  "chat.completion.chunk",
-			Created: time.Now().Unix(),
-			Model:   req.Model,
-			Data: map[string]interface{}{
-				"delta": map[string]string{
-					"content": chunk,
-				},
-			},
-		}
-
-		data, _ := json.Marshal(streamChunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-		time.Sleep(100 * time.Millisecond) // Simulate streaming delay
+	// Select model using routing strategy
+	strategy := r.URL.Query().Get("strategy")
+	if strategy == "" {
+		strategy = "tag-based" // Default strategy
 	}
 
-	// Send final chunk with usage
-	finalChunk := core.StreamChunk{
-		ID:      "chunk-final",
-		Object:  "chat.completion.chunk",
-		Created: time.Now().Unix(),
-		Model:   req.Model,
-		Data: map[string]interface{}{
-			"delta": map[string]string{
-				"finish_reason": "stop",
-			},
-		},
-		Usage: &core.Usage{
-			PromptTokens:     10,
-			CompletionTokens: 15,
-			TotalTokens:      25,
-		},
+	selectedModel, err := s.modelRouter.SelectModel(r.Context(), strategy, req.Metadata)
+	if err != nil {
+		s.logger.Error("model selection failed", "error", err, "strategy", strategy)
+		sseWriter.WriteError(fmt.Errorf("model selection failed: %w", err))
+		return
 	}
 
-	data, _ := json.Marshal(finalChunk)
-	fmt.Fprintf(w, "data: %s\n\n", data)
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
+	s.logger.Info("streaming model selected", "model", selectedModel.ID, "strategy", strategy, "domain", req.Metadata["task_domain"])
+
+	// Create mock streaming provider for now
+	provider := providers.NewMockStreamingProvider()
+
+	// Perform streaming chat
+	if err := provider.ChatStream(r.Context(), *selectedModel, req, sseWriter); err != nil {
+		s.logger.Error("streaming chat failed", "error", err)
+		sseWriter.WriteError(err)
+		return
+	}
+
+	// Close the stream
+	sseWriter.Close()
 }
 
 // handleComplete handles text completion requests
