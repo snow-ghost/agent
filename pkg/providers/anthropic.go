@@ -65,7 +65,7 @@ func NewAnthropicProvider(baseURL, apiKey string) *AnthropicProvider {
 }
 
 // Chat performs chat completion using Anthropic API
-func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, req core.ChatRequest) (core.ChatResponse, error) {
+func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error) {
 	// Convert messages (Anthropic uses different format)
 	messages := make([]AnthropicMessage, 0, len(req.Messages))
 	for _, msg := range req.Messages {
@@ -118,7 +118,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 	// Parse response
 	var anthropicResp AnthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
-		return core.ChatResponse{}, fmt.Errorf("failed to decode anthropic response: %w", err)
+		return routercore.ChatResponse{}, fmt.Errorf("failed to decode anthropic response: %w", err)
 	}
 
 	// Extract text content
@@ -130,9 +130,9 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 	}
 
 	// Convert response
-	chatResp := core.ChatResponse{
+	chatResp := routercore.ChatResponse{
 		Text: text,
-		Usage: core.Usage{
+		Usage: routercore.Usage{
 			PromptTokens:     anthropicResp.Usage.InputTokens,
 			CompletionTokens: anthropicResp.Usage.OutputTokens,
 			TotalTokens:      anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,

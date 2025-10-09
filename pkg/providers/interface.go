@@ -12,10 +12,10 @@ import (
 // Provider defines the interface for LLM providers
 type Provider interface {
 	// Chat performs chat completion
-	Chat(ctx context.Context, mc registry.ModelConfig, req core.ChatRequest) (core.ChatResponse, error)
+	Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error)
 
 	// Embed generates embeddings for input texts
-	Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, core.Usage, error)
+	Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, interface{}, error)
 
 	// GetCostCalculator returns the cost calculator for this provider
 	GetCostCalculator() *cost.Calculator

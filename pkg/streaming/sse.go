@@ -268,7 +268,7 @@ func processEvent(eventType, data string, handler *StreamHandler) error {
 			return fmt.Errorf("failed to unmarshal error: %w", err)
 		}
 		if errorMsg, ok := errorData["error"].(string); ok {
-			return handler.HandleError(fmt.Errorf(errorMsg))
+			return handler.HandleError(fmt.Errorf("%s", errorMsg))
 		}
 		return handler.HandleError(fmt.Errorf("unknown error"))
 

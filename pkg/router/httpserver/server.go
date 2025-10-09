@@ -102,11 +102,15 @@ func NewServer(port string, logger *slog.Logger) *Server {
 
 // setupRoutes configures all the HTTP routes
 func (s *Server) setupRoutes() {
-	// Health and metrics
+	// Create logging middleware
+	loggingConfig := DefaultLoggingConfig()
+	loggingMiddleware := LoggingMiddleware(loggingConfig, s.logger)
+
+	// Health and metrics (no logging for these)
 	s.router.HandleFunc("/health", s.handleHealth)
 	s.router.HandleFunc("/metrics", s.handleMetrics)
 
-	// API v1 routes
+	// API v1 routes with logging middleware
 	v1 := http.NewServeMux()
 	v1.HandleFunc("/chat", s.handleChat)
 	v1.HandleFunc("/chat/stream", s.handleChatStream)
@@ -118,7 +122,8 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/protection", s.handleProtection)
 	v1.HandleFunc("/cache", s.handleCache)
 
-	s.router.Handle("/v1/", http.StripPrefix("/v1", v1))
+	// Apply logging middleware to v1 routes
+	s.router.Handle("/v1/", loggingMiddleware(http.StripPrefix("/v1", v1)))
 }
 
 // observabilityMiddleware adds observability to HTTP requests
@@ -354,6 +359,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	requestID := observability.GetRequestIDFromContext(ctx)
 	caller := observability.GetCallerFromContext(ctx)
 
+	// Log the chat request
+	s.logger.InfoContext(ctx, "chat_request_started",
+		"request_id", requestID,
+		"caller", caller,
+		"model", req.Model,
+		"messages_count", len(req.Messages),
+		"temperature", req.Temperature,
+		"max_tokens", req.MaxTokens,
+	)
+
 	// Check budget if specified
 	if s.accounting != nil {
 		budgetHeader := r.Header.Get("X-Budget-Amount")
@@ -481,6 +496,20 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	// Add cost headers
 	s.addCostHeaders(w, selectedModel.ID, response.Usage)
+
+	// Log the response
+	s.logger.InfoContext(ctx, "chat_request_completed",
+		"request_id", requestID,
+		"caller", caller,
+		"model", selectedModel.ID,
+		"provider", selectedModel.Provider,
+		"input_tokens", response.Usage.PromptTokens,
+		"output_tokens", response.Usage.CompletionTokens,
+		"total_tokens", response.Usage.TotalTokens,
+		"cost", costResult.TotalCost,
+		"currency", costResult.Currency,
+		"cache_status", w.Header().Get("X-Cache"),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

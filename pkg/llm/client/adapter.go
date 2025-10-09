@@ -139,7 +139,7 @@ func (a *Adapter) Propose(ctx context.Context, task core.Task) (string, []core.T
 // ProposeWithCaller implements core.LLMClient.ProposeWithCaller
 func (a *Adapter) ProposeWithCaller(ctx context.Context, task core.Task, caller string) (string, []core.TestCase, []string, error) {
 	// Create a chat request for algorithm generation
-	prompt := fmt.Sprintf("Generate a WASM algorithm for the following task:\n\nDescription: %s\nDomain: %s\nSpec: %s",
+	prompt := fmt.Sprintf("Generate a WASM algorithm for the following task:\n\nDescription: %s\nDomain: %s\nSpec: %v",
 		task.Description, task.Domain, task.Spec)
 
 	req := ChatRequest{

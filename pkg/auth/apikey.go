@@ -232,12 +232,13 @@ func ListAPIKeysCommand(configFile string) error {
 			expires = key.ExpiresAt.Format("2006-01-02")
 		}
 
-		fmt.Printf("%s\t\t%s\t\t%d/min\t\t%s\t%s\n",
+		fmt.Printf("%s\t\t%s\t\t%d/min\t\t%s\t%s\t%s\n",
 			key.Name,
 			key.Key,
 			key.RateLimit,
 			active,
 			key.CreatedAt.Format("2006-01-02"),
+			expires,
 		)
 	}
 

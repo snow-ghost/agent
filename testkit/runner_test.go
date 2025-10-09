@@ -139,18 +139,3 @@ func TestE2E_DockerCompose_KB_Write(t *testing.T) {
 
 	assert.True(t, found, "expected a new KB artifact manifest to be created")
 }
-
-func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func mustParseDuration(s string) time.Duration {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		panic(err)
-	}
-	return d
-}

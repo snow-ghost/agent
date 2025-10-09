@@ -197,3 +197,11 @@ func GetCallerFromContext(ctx context.Context) string {
 	}
 	return "unknown"
 }
+
+// Close closes the observability manager
+func (m *Manager) Close() error {
+	if m.tracer != nil {
+		return m.tracer.Shutdown(context.Background())
+	}
+	return nil
+}

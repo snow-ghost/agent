@@ -38,7 +38,7 @@ func TestE2E_FullSystemFlow(t *testing.T) {
 			Description: "Sort numbers ascending",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"sorted_non_decreasing"},
-				Props:           map[string]interface{}{"type": "sort"},
+				Props:           map[string]string{"type": "sort"},
 				MetricsWeights:  map[string]float64{"cases_passed": 1.0, "cases_total": 0.0},
 			},
 			Input:  json.RawMessage(`{"numbers":[3,1,2]}`),
@@ -59,7 +59,7 @@ func TestE2E_FullSystemFlow(t *testing.T) {
 			Description: "Sort numbers ascending",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"sorted_non_decreasing", "permutes"},
-				Props:           map[string]interface{}{"type": "sort"},
+				Props:           map[string]string{"type": "sort"},
 				MetricsWeights:  map[string]float64{"cases_passed": 1.0, "cases_total": 0.0},
 			},
 			Input:  json.RawMessage(`{"numbers":[3,1,2]}`),
@@ -144,7 +144,7 @@ func TestE2E_FullSystemFlow(t *testing.T) {
 				Description: "Find similar algorithms",
 				Spec: core.Spec{
 					SuccessCriteria: []string{"similarity_score"},
-					Props:           map[string]interface{}{"type": "search"},
+					Props:           map[string]string{"type": "search"},
 					MetricsWeights:  map[string]float64{"similarity_score": 1.0},
 				},
 				Input:  json.RawMessage(`{"query":"sorting algorithm"}`),
@@ -177,7 +177,7 @@ func TestE2E_WorkerFailover(t *testing.T) {
 			Description: "Test failover",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"completed"},
-				Props:           map[string]interface{}{"type": "test"},
+				Props:           map[string]string{"type": "test"},
 				MetricsWeights:  map[string]float64{"completed": 1.0},
 			},
 			Input:  json.RawMessage(`{"test": true}`),
@@ -198,7 +198,7 @@ func TestE2E_WorkerFailover(t *testing.T) {
 			Description: "Test light worker failover",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"sorted_non_decreasing"},
-				Props:           map[string]interface{}{"type": "sort"},
+				Props:           map[string]string{"type": "sort"},
 				MetricsWeights:  map[string]float64{"cases_passed": 1.0},
 			},
 			Input:  json.RawMessage(`{"numbers":[3,1,2]}`),
@@ -233,7 +233,7 @@ func TestE2E_Performance(t *testing.T) {
 					Description: "Concurrent sort test",
 					Spec: core.Spec{
 						SuccessCriteria: []string{"sorted_non_decreasing"},
-						Props:           map[string]interface{}{"type": "sort"},
+						Props:           map[string]string{"type": "sort"},
 						MetricsWeights:  map[string]float64{"cases_passed": 1.0},
 					},
 					Input:  json.RawMessage(`{"numbers":[3,1,2]}`),
@@ -267,7 +267,7 @@ func TestE2E_Performance(t *testing.T) {
 			Description: "Performance test",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"sorted_non_decreasing"},
-				Props:           map[string]interface{}{"type": "sort"},
+				Props:           map[string]string{"type": "sort"},
 				MetricsWeights:  map[string]float64{"cases_passed": 1.0},
 			},
 			Input:  json.RawMessage(`{"numbers":[3,1,2]}`),
@@ -318,7 +318,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 			Description: "Invalid input test",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"sorted_non_decreasing"},
-				Props:           map[string]interface{}{"type": "sort"},
+				Props:           map[string]string{"type": "sort"},
 				MetricsWeights:  map[string]float64{"cases_passed": 1.0},
 			},
 			Input:  json.RawMessage(`{"invalid": "data"}`), // Invalid input
@@ -339,7 +339,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 			Description: "Timeout test",
 			Spec: core.Spec{
 				SuccessCriteria: []string{"completed"},
-				Props:           map[string]interface{}{"type": "test"},
+				Props:           map[string]string{"type": "test"},
 				MetricsWeights:  map[string]float64{"completed": 1.0},
 			},
 			Input:  json.RawMessage(`{"test": true}`),

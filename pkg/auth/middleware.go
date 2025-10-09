@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/pkg/errors"
-	"github.com/snow-ghost/agent/pkg/limiter"
 )
 
 // APIKey represents an API key with metadata
@@ -95,7 +94,7 @@ func NewAuthMiddleware(config *AuthConfig, errorHandler *errors.ErrorHandler) *A
 
 	return &AuthMiddleware{
 		config:       config,
-		rateLimiters: make(map[string]*limiter.RateLimiter),
+		rateLimiters: make(map[string]*RateLimiter),
 		errorHandler: errorHandler,
 	}
 }

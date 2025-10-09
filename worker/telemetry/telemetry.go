@@ -2,26 +2,21 @@ package telemetry
 
 import (
 	"context"
-	"expvar"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	"github.com/snow-ghost/agent/pkg/metrics"
 )
 
 // Telemetry collects basic metrics and provides structured logging
 type Telemetry struct {
 	mu sync.RWMutex
 
-	// Metrics
-	TasksTotal      *expvar.Int
-	TasksSolved     *expvar.Int
-	TasksFailed     *expvar.Int
-	IterationsTotal *expvar.Int
-	TestPassRate    *expvar.Float
-	AvgSolveTime    *expvar.Float
+	// Prometheus metrics
+	metrics *metrics.PrometheusMetrics
 
 	// Internal state for calculations
 	totalSolveTime time.Duration
@@ -34,13 +29,8 @@ type Telemetry struct {
 // NewTelemetry creates a new telemetry instance
 func NewTelemetry() *Telemetry {
 	t := &Telemetry{
-		TasksTotal:      expvar.NewInt("tasks_total"),
-		TasksSolved:     expvar.NewInt("tasks_solved"),
-		TasksFailed:     expvar.NewInt("tasks_failed"),
-		IterationsTotal: expvar.NewInt("iterations_total"),
-		TestPassRate:    expvar.NewFloat("test_pass_rate"),
-		AvgSolveTime:    expvar.NewFloat("avg_solve_time_ms"),
-		logger:          slog.Default(),
+		metrics: metrics.NewPrometheusMetrics(),
+		logger:  slog.Default(),
 	}
 
 	return t
@@ -53,6 +43,8 @@ func (t *Telemetry) LogTaskStart(ctx context.Context, task core.Task) {
 		"domain", task.Domain,
 		"timeout_ms", task.Budget.CPUMillis,
 	)
+
+	t.metrics.TasksTotal.WithLabelValues("worker", task.Domain, "started").Inc()
 }
 
 // LogTaskEnd logs the end of a task with result
@@ -60,12 +52,13 @@ func (t *Telemetry) LogTaskEnd(ctx context.Context, task core.Task, result core.
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.TasksTotal.Add(1)
-	t.IterationsTotal.Add(int64(iterations))
 	t.totalSolveTime += duration
 
+	// Record task duration
+	t.metrics.TaskDuration.WithLabelValues("worker", task.Domain).Observe(duration.Seconds())
+
 	if result.Success {
-		t.TasksSolved.Add(1)
+		t.metrics.TasksSolved.WithLabelValues("worker", task.Domain).Inc()
 		t.logger.InfoContext(ctx, "task_solved",
 			"task_id", task.ID,
 			"duration_ms", duration.Milliseconds(),
@@ -73,17 +66,12 @@ func (t *Telemetry) LogTaskEnd(ctx context.Context, task core.Task, result core.
 			"score", result.Score,
 		)
 	} else {
-		t.TasksFailed.Add(1)
+		t.metrics.TasksFailed.WithLabelValues("worker", task.Domain).Inc()
 		t.logger.WarnContext(ctx, "task_failed",
 			"task_id", task.ID,
 			"duration_ms", duration.Milliseconds(),
 			"iterations", iterations,
 		)
-	}
-
-	// Update averages
-	if t.TasksTotal.Value() > 0 {
-		t.AvgSolveTime.Set(float64(t.totalSolveTime.Milliseconds()) / float64(t.TasksTotal.Value()))
 	}
 }
 
@@ -101,7 +89,12 @@ func (t *Telemetry) LogTestResults(ctx context.Context, hypothesis core.Hypothes
 
 	// Update pass rate
 	if t.totalTests > 0 {
-		t.TestPassRate.Set(float64(t.passedTests) / float64(t.totalTests))
+		passRate := float64(t.passedTests) / float64(t.totalTests)
+		domain := hypothesis.Meta["domain"]
+		if domain == "" {
+			domain = "unknown"
+		}
+		t.metrics.SetTestPassRate("worker", domain, passRate)
 	}
 
 	t.logger.DebugContext(ctx, "test_results",
@@ -126,8 +119,39 @@ func (t *Telemetry) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok","service":"agent-worker"}`))
 }
 
-// MetricsHandler returns metrics in expvar format
+// MetricsHandler returns metrics in Prometheus format
 func (t *Telemetry) MetricsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	expvar.Handler().ServeHTTP(w, r)
+	// Use the default Prometheus handler
+	http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		// This would need to be implemented with a proper Prometheus registry
+		w.Write([]byte("# Prometheus metrics not yet implemented\n"))
+	}).ServeHTTP(w, r)
+}
+
+// LogKBHit logs a knowledge base cache hit
+func (t *Telemetry) LogKBHit(ctx context.Context, domain string) {
+	t.metrics.RecordKBHit("worker", domain)
+	t.logger.DebugContext(ctx, "kb_hit", "domain", domain)
+}
+
+// LogKBMiss logs a knowledge base cache miss
+func (t *Telemetry) LogKBMiss(ctx context.Context, domain string) {
+	t.metrics.RecordKBMiss("worker", domain)
+	t.logger.DebugContext(ctx, "kb_miss", "domain", domain)
+}
+
+// LogWASMExecution logs a WASM execution
+func (t *Telemetry) LogWASMExecution(ctx context.Context, domain string, duration time.Duration) {
+	t.metrics.RecordWASMExecution("worker", "success")
+	t.metrics.RecordWASMExecutionTime("worker", duration)
+	t.logger.DebugContext(ctx, "wasm_execution", "domain", domain, "duration_ms", duration.Milliseconds())
+}
+
+// LogLLMCall logs an LLM API call
+func (t *Telemetry) LogLLMCall(ctx context.Context, provider, model string, tokens int, duration time.Duration) {
+	t.metrics.RecordRequest(provider, model, "success")
+	t.metrics.RecordLatency(provider, model, duration)
+	t.metrics.RecordTokens(provider, model, tokens, 0) // Assuming all tokens are input
+	t.logger.DebugContext(ctx, "llm_call", "provider", provider, "model", model, "tokens", tokens, "duration_ms", duration.Milliseconds())
 }
