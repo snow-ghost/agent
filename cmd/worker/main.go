@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/snow-ghost/agent/worker"
 	"github.com/snow-ghost/agent/worker/capabilities"
@@ -29,6 +32,9 @@ func main() {
 		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
+
+	// Log loaded configuration
+	config.LogConfig(logger)
 
 	// Create worker using factory
 	workerInstance, err := worker.NewWorker(config)
@@ -79,7 +85,49 @@ func main() {
 		"hypotheses_dir", config.HypothesesDir,
 		"log_level", config.LogLevel)
 
-	log.Fatal(http.ListenAndServe(":"+config.WorkerPort, mux))
+	// Create HTTP server with graceful shutdown
+	server := &http.Server{
+		Addr:    ":" + config.WorkerPort,
+		Handler: mux,
+	}
+
+	// Start server in goroutine
+	go func() {
+		logger.Info("worker server starting", "addr", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("worker server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("worker shutting down...")
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Shutdown server
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("worker server shutdown failed", "error", err)
+	} else {
+		logger.Info("worker server shutdown complete")
+	}
+
+	// Cleanup worker resources
+	if cleanupWorker, ok := workerInstance.(interface{ Close() error }); ok {
+		if err := cleanupWorker.Close(); err != nil {
+			logger.Error("worker cleanup failed", "error", err)
+		} else {
+			logger.Info("worker cleanup complete")
+		}
+	}
+
+	logger.Info("worker shutdown complete")
 }
 
 // parseLogLevel converts string log level to slog.Level

@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -27,6 +28,7 @@ type Server struct {
 	port              string
 	logger            *slog.Logger
 	router            *http.ServeMux
+	httpServer        *http.Server
 	registry          *registry.Registry
 	costCalculator    *cost.Calculator
 	modelRouter       *routing.ModelRouter
@@ -184,7 +186,64 @@ func generateRequestID() string {
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	s.logger.Info("starting HTTP server", "port", s.port)
-	return http.ListenAndServe(":"+s.port, s.router)
+
+	// Create HTTP server
+	s.httpServer = &http.Server{
+		Addr:    ":" + s.port,
+		Handler: s.router,
+	}
+
+	return s.httpServer.ListenAndServe()
+}
+
+// StartWithGracefulShutdown starts the server with graceful shutdown support
+func (s *Server) StartWithGracefulShutdown() error {
+	s.logger.Info("starting HTTP server with graceful shutdown", "port", s.port)
+
+	// Create HTTP server
+	s.httpServer = &http.Server{
+		Addr:    ":" + s.port,
+		Handler: s.router,
+	}
+
+	// Start server in goroutine
+	go func() {
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.logger.Error("HTTP server failed", "error", err)
+		}
+	}()
+
+	return nil
+}
+
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
+	}
+
+	s.logger.Info("shutting down HTTP server")
+	return s.httpServer.Shutdown(ctx)
+}
+
+// Close cleans up server resources
+func (s *Server) Close() error {
+	// Close cache manager
+	if s.cacheManager != nil {
+		s.cacheManager.Close()
+	}
+
+	// Close accounting manager
+	if s.accounting != nil {
+		s.accounting.Close()
+	}
+
+	// Close observability manager
+	if s.observability != nil {
+		s.observability.Close()
+	}
+
+	return nil
 }
 
 // handleHealth handles health check requests

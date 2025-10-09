@@ -67,7 +67,7 @@ services:
       - MODEL_TAG=${MODEL_TAG:-general}
     volumes:
       - ./hypotheses:/app/hypotheses
-      - ./artifacts:/app/artifacts:ro
+      - ./artifacts:/app/artifacts
       - ./router.yaml:/app/router.yaml:ro
     networks:
       - agent_network
@@ -184,6 +184,8 @@ services:
       start_period: 10s
       
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     
     # Resource limits
     deploy:
@@ -247,12 +249,37 @@ services:
     profiles:
       - monitoring
 
+  # Qdrant vector database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - agent_network
+    profiles:
+      - qdrant
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   llmrouter_data:
     driver: local
   llmrouter_logs:
     driver: local
   grafana_data:
+    driver: local
+  qdrant_data:
     driver: local
 
 networks:

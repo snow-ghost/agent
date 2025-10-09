@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/snow-ghost/agent/pkg/registry"
@@ -181,15 +183,23 @@ func NewModelRouter(registry *registry.Registry) *ModelRouter {
 	roundRobin := NewRoundRobinStrategy()
 	weighted := NewWeightedStrategy()
 	tagBased := NewTagBasedStrategy(weighted)
+	costAware := NewCostAwareStrategy(0.01, 0.6, 0.4) // 60% quality, 40% cost
+	latencyBased := NewLatencyBasedStrategy(100)      // Keep 100 recent measurements
+	loadBalancing := NewLoadBalancingStrategy()
+	abTesting := NewABTestingStrategy()
 
 	router := &ModelRouter{
 		registry: registry,
 		strategies: map[string]ModelSelector{
-			"round-robin": roundRobin,
-			"weighted":    weighted,
-			"tag-based":   tagBased,
+			"round-robin":    roundRobin,
+			"weighted":       weighted,
+			"tag-based":      tagBased,
+			"cost-aware":     costAware,
+			"latency-based":  latencyBased,
+			"load-balancing": loadBalancing,
+			"ab-testing":     abTesting,
 		},
-		defaultStrategy: "tag-based",
+		defaultStrategy: "cost-aware",
 		defaultModel:    os.Getenv("DEFAULT_MODEL"),
 	}
 
@@ -250,4 +260,407 @@ func (r *ModelRouter) GetModelsByKind(kind string) []registry.ModelConfig {
 		}
 	}
 	return filtered
+}
+
+// CostAwareStrategy implements cost-aware model selection
+type CostAwareStrategy struct {
+	costThreshold float64
+	qualityWeight float64
+	costWeight    float64
+}
+
+// NewCostAwareStrategy creates a new cost-aware strategy
+func NewCostAwareStrategy(costThreshold, qualityWeight, costWeight float64) *CostAwareStrategy {
+	return &CostAwareStrategy{
+		costThreshold: costThreshold,
+		qualityWeight: qualityWeight,
+		costWeight:    costWeight,
+	}
+}
+
+// SelectModel selects a model based on cost and quality balance
+func (c *CostAwareStrategy) SelectModel(ctx context.Context, models []registry.ModelConfig, metadata map[string]string) (*registry.ModelConfig, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+
+	// Calculate scores for each model
+	type ModelScore struct {
+		model registry.ModelConfig
+		score float64
+	}
+
+	scores := make([]ModelScore, 0, len(models))
+	for _, model := range models {
+		score := c.calculateScore(model, metadata)
+		scores = append(scores, ModelScore{model: model, score: score})
+	}
+
+	// Sort by score (descending)
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].score > scores[j].score
+	})
+
+	// Return the highest scoring model
+	return &scores[0].model, nil
+}
+
+// calculateScore calculates a score for a model based on cost and quality
+func (c *CostAwareStrategy) calculateScore(model registry.ModelConfig, metadata map[string]string) float64 {
+	// Get cost per 1K tokens (input + output)
+	inputCost := model.Pricing.InputPer1K
+	outputCost := model.Pricing.OutputPer1K
+	totalCost := inputCost + outputCost
+
+	// Calculate quality score based on model capabilities
+	qualityScore := c.calculateQualityScore(model)
+
+	// Calculate cost score (lower cost = higher score)
+	costScore := 0.0
+	if totalCost == 0 {
+		costScore = 1.0 // Free models get highest cost score
+	} else {
+		costScore = 1.0 / (1.0 + totalCost) // Inverse cost scoring
+	}
+
+	// Weighted combination
+	return c.qualityWeight*qualityScore + c.costWeight*costScore
+}
+
+// calculateQualityScore calculates quality score based on model capabilities
+func (c *CostAwareStrategy) calculateQualityScore(model registry.ModelConfig) float64 {
+	score := 0.5 // Base score
+
+	// Boost for advanced models
+	if containsTag(model.Tags, "advanced") || containsTag(model.Tags, "complex") {
+		score += 0.3
+	}
+
+	// Boost for fast models
+	if containsTag(model.Tags, "fast") || containsTag(model.Tags, "quick") {
+		score += 0.2
+	}
+
+	// Boost for code-specific models
+	if containsTag(model.Tags, "code") || containsTag(model.Tags, "programming") {
+		score += 0.1
+	}
+
+	// Cap at 1.0
+	if score > 1.0 {
+		score = 1.0
+	}
+
+	return score
+}
+
+// LatencyBasedStrategy implements latency-based model selection
+type LatencyBasedStrategy struct {
+	latencyHistory map[string][]time.Duration
+	mu             sync.RWMutex
+	maxHistory     int
+}
+
+// NewLatencyBasedStrategy creates a new latency-based strategy
+func NewLatencyBasedStrategy(maxHistory int) *LatencyBasedStrategy {
+	return &LatencyBasedStrategy{
+		latencyHistory: make(map[string][]time.Duration),
+		maxHistory:     maxHistory,
+	}
+}
+
+// SelectModel selects a model based on historical latency
+func (l *LatencyBasedStrategy) SelectModel(ctx context.Context, models []registry.ModelConfig, metadata map[string]string) (*registry.ModelConfig, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+
+	// Calculate average latency for each model
+	type ModelLatency struct {
+		model   registry.ModelConfig
+		latency time.Duration
+	}
+
+	latencies := make([]ModelLatency, 0, len(models))
+	for _, model := range models {
+		avgLatency := l.getAverageLatency(model.ID)
+		latencies = append(latencies, ModelLatency{model: model, latency: avgLatency})
+	}
+
+	// Sort by latency (ascending - faster first)
+	sort.Slice(latencies, func(i, j int) bool {
+		return latencies[i].latency < latencies[j].latency
+	})
+
+	// Return the fastest model
+	return &latencies[0].model, nil
+}
+
+// RecordLatency records latency for a model
+func (l *LatencyBasedStrategy) RecordLatency(modelID string, latency time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	history := l.latencyHistory[modelID]
+	history = append(history, latency)
+
+	// Keep only the most recent measurements
+	if len(history) > l.maxHistory {
+		history = history[len(history)-l.maxHistory:]
+	}
+
+	l.latencyHistory[modelID] = history
+}
+
+// getAverageLatency returns the average latency for a model
+func (l *LatencyBasedStrategy) getAverageLatency(modelID string) time.Duration {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	history := l.latencyHistory[modelID]
+	if len(history) == 0 {
+		return time.Minute // Default high latency for unknown models
+	}
+
+	var total time.Duration
+	for _, latency := range history {
+		total += latency
+	}
+
+	return total / time.Duration(len(history))
+}
+
+// LoadBalancingStrategy implements load balancing with health checks
+type LoadBalancingStrategy struct {
+	modelHealth    map[string]bool
+	modelLoad      map[string]int
+	mu             sync.RWMutex
+	healthCheckers map[string]HealthChecker
+}
+
+// HealthChecker defines the interface for health checking
+type HealthChecker interface {
+	IsHealthy(modelID string) bool
+}
+
+// NewLoadBalancingStrategy creates a new load balancing strategy
+func NewLoadBalancingStrategy() *LoadBalancingStrategy {
+	return &LoadBalancingStrategy{
+		modelHealth:    make(map[string]bool),
+		modelLoad:      make(map[string]int),
+		healthCheckers: make(map[string]HealthChecker),
+	}
+}
+
+// SelectModel selects a model based on load and health
+func (lb *LoadBalancingStrategy) SelectModel(ctx context.Context, models []registry.ModelConfig, metadata map[string]string) (*registry.ModelConfig, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+
+	// Filter healthy models
+	var healthyModels []registry.ModelConfig
+	for _, model := range models {
+		if lb.isHealthy(model.ID) {
+			healthyModels = append(healthyModels, model)
+		}
+	}
+
+	// If no healthy models, use all models
+	if len(healthyModels) == 0 {
+		healthyModels = models
+	}
+
+	// Select model with least load
+	selectedModel := &healthyModels[0]
+	minLoad := lb.getLoad(selectedModel.ID)
+
+	for i := 1; i < len(healthyModels); i++ {
+		model := &healthyModels[i]
+		load := lb.getLoad(model.ID)
+		if load < minLoad {
+			selectedModel = model
+			minLoad = load
+		}
+	}
+
+	// Increment load for selected model
+	lb.incrementLoad(selectedModel.ID)
+
+	return selectedModel, nil
+}
+
+// isHealthy checks if a model is healthy
+func (lb *LoadBalancingStrategy) isHealthy(modelID string) bool {
+	lb.mu.RLock()
+	defer lb.mu.RUnlock()
+
+	// Check if we have a health checker for this model
+	if checker, exists := lb.healthCheckers[modelID]; exists {
+		return checker.IsHealthy(modelID)
+	}
+
+	// Default to healthy if no checker
+	return lb.modelHealth[modelID] || !lb.modelHealth[modelID] // Default to true
+}
+
+// getLoad returns the current load for a model
+func (lb *LoadBalancingStrategy) getLoad(modelID string) int {
+	lb.mu.RLock()
+	defer lb.mu.RUnlock()
+	return lb.modelLoad[modelID]
+}
+
+// incrementLoad increments the load for a model
+func (lb *LoadBalancingStrategy) incrementLoad(modelID string) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.modelLoad[modelID]++
+}
+
+// decrementLoad decrements the load for a model
+func (lb *LoadBalancingStrategy) decrementLoad(modelID string) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	if lb.modelLoad[modelID] > 0 {
+		lb.modelLoad[modelID]--
+	}
+}
+
+// SetHealthChecker sets a health checker for a model
+func (lb *LoadBalancingStrategy) SetHealthChecker(modelID string, checker HealthChecker) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.healthCheckers[modelID] = checker
+}
+
+// SetHealth sets the health status for a model
+func (lb *LoadBalancingStrategy) SetHealth(modelID string, healthy bool) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.modelHealth[modelID] = healthy
+}
+
+// A/B Testing Strategy
+type ABTestingStrategy struct {
+	experiments map[string]*ABExperiment
+	mu          sync.RWMutex
+}
+
+// ABExperiment represents an A/B test experiment
+type ABExperiment struct {
+	Name         string
+	Variants     []ABVariant
+	TrafficSplit []float64
+	StartTime    time.Time
+	EndTime      time.Time
+	Active       bool
+}
+
+// ABVariant represents a variant in an A/B test
+type ABVariant struct {
+	Name   string
+	Model  string
+	Weight float64
+}
+
+// NewABTestingStrategy creates a new A/B testing strategy
+func NewABTestingStrategy() *ABTestingStrategy {
+	return &ABTestingStrategy{
+		experiments: make(map[string]*ABExperiment),
+	}
+}
+
+// SelectModel selects a model based on A/B testing
+func (ab *ABTestingStrategy) SelectModel(ctx context.Context, models []registry.ModelConfig, metadata map[string]string) (*registry.ModelConfig, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+
+	// Get experiment name from metadata
+	experimentName := metadata["experiment"]
+	if experimentName == "" {
+		// No experiment, use first model
+		return &models[0], nil
+	}
+
+	ab.mu.RLock()
+	experiment, exists := ab.experiments[experimentName]
+	ab.mu.RUnlock()
+
+	if !exists || !experiment.Active {
+		// No active experiment, use first model
+		return &models[0], nil
+	}
+
+	// Check if experiment is still active
+	now := time.Now()
+	if now.Before(experiment.StartTime) || now.After(experiment.EndTime) {
+		return &models[0], nil
+	}
+
+	// Select variant based on traffic split
+	selectedVariant := ab.selectVariant(experiment)
+	if selectedVariant == nil {
+		return &models[0], nil
+	}
+
+	// Find the model for the selected variant
+	for _, model := range models {
+		if model.ID == selectedVariant.Model {
+			return &model, nil
+		}
+	}
+
+	// Fallback to first model
+	return &models[0], nil
+}
+
+// selectVariant selects a variant based on traffic split
+func (ab *ABTestingStrategy) selectVariant(experiment *ABExperiment) *ABVariant {
+	if len(experiment.Variants) == 0 {
+		return nil
+	}
+
+	// Generate random number between 0 and 1
+	random := rand.Float64()
+
+	// Find which variant to select based on cumulative weights
+	cumulativeWeight := 0.0
+	for _, variant := range experiment.Variants {
+		cumulativeWeight += variant.Weight
+		if random <= cumulativeWeight {
+			return &variant
+		}
+	}
+
+	// Fallback to last variant
+	return &experiment.Variants[len(experiment.Variants)-1]
+}
+
+// AddExperiment adds an A/B test experiment
+func (ab *ABTestingStrategy) AddExperiment(experiment *ABExperiment) {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	ab.experiments[experiment.Name] = experiment
+}
+
+// RemoveExperiment removes an A/B test experiment
+func (ab *ABTestingStrategy) RemoveExperiment(name string) {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	delete(ab.experiments, name)
+}
+
+// GetExperiments returns all experiments
+func (ab *ABTestingStrategy) GetExperiments() map[string]*ABExperiment {
+	ab.mu.RLock()
+	defer ab.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string]*ABExperiment)
+	for k, v := range ab.experiments {
+		result[k] = v
+	}
+	return result
 }

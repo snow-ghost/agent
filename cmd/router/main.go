@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
@@ -30,6 +31,21 @@ func LoadRouterConfig() *RouterConfig {
 		HeavyWorkerURL:      getEnv("HEAVY_WORKER_URL", "http://localhost:8082"),
 		Port:                getEnv("ROUTER_PORT", "8080"),
 		ComplexityThreshold: getEnvInt("COMPLEXITY_THRESHOLD", 5),
+	}
+}
+
+// LogConfig logs the router configuration in a structured format
+func (c *RouterConfig) LogConfig(logger interface{}) {
+	// Use type assertion to check if logger has Info method
+	if slogLogger, ok := logger.(interface {
+		Info(msg string, args ...any)
+	}); ok {
+		slogLogger.Info("router configuration loaded",
+			"port", c.Port,
+			"light_worker_url", c.LightWorkerURL,
+			"heavy_worker_url", c.HeavyWorkerURL,
+			"complexity_threshold", c.ComplexityThreshold,
+		)
 	}
 }
 
@@ -300,6 +316,9 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	// Log loaded configuration
+	config.LogConfig(logger)
+
 	// Create router
 	router := NewRouter(config)
 
@@ -315,5 +334,42 @@ func main() {
 		"light_worker", config.LightWorkerURL,
 		"heavy_worker", config.HeavyWorkerURL)
 
-	log.Fatal(http.ListenAndServe(":"+config.Port, mux))
+	// Create HTTP server with graceful shutdown
+	server := &http.Server{
+		Addr:    ":" + config.Port,
+		Handler: mux,
+	}
+
+	// Start server in goroutine
+	go func() {
+		logger.Info("router server starting", "addr", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("router server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("router shutting down...")
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Shutdown server
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("router server shutdown failed", "error", err)
+	} else {
+		logger.Info("router server shutdown complete")
+	}
+
+	// Close HTTP clients
+	router.lightClient.CloseIdleConnections()
+	router.heavyClient.CloseIdleConnections()
+
+	logger.Info("router shutdown complete")
 }

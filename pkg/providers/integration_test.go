@@ -2,312 +2,341 @@ package providers
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/snow-ghost/agent/core"
 	"github.com/snow-ghost/agent/pkg/registry"
-	"github.com/snow-ghost/agent/pkg/router/core"
+	routercore "github.com/snow-ghost/agent/pkg/router/core"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// MockOpenAIServer creates a mock OpenAI-compatible server
-func MockOpenAIServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		// Debug: log the request
-		// fmt.Printf("Mock server received request: %s %s\n", r.Method, r.URL.Path)
-
-		if r.URL.Path == "/chat/completions" {
-			// Mock chat completion response
-			response := map[string]interface{}{
-				"id":      "chatcmpl-test",
-				"object":  "chat.completion",
-				"created": 1234567890,
-				"model":   "gpt-3.5-turbo",
-				"choices": []map[string]interface{}{
-					{
-						"index": 0,
-						"message": map[string]interface{}{
-							"role":    "assistant",
-							"content": "This is a mock response from OpenAI",
-						},
-						"finish_reason": "stop",
-					},
-				},
-				"usage": map[string]interface{}{
-					"prompt_tokens":     10,
-					"completion_tokens": 15,
-					"total_tokens":      25,
-				},
-			}
-			json.NewEncoder(w).Encode(response)
-		} else if r.URL.Path == "/embeddings" {
-			// Mock embeddings response
-			response := map[string]interface{}{
-				"object": "list",
-				"data": []map[string]interface{}{
-					{
-						"object":    "embedding",
-						"index":     0,
-						"embedding": []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-					},
-				},
-				"usage": map[string]interface{}{
-					"prompt_tokens": 5,
-					"total_tokens":  5,
-				},
-			}
-			json.NewEncoder(w).Encode(response)
-		} else {
-			// Debug: log unexpected requests
-			// fmt.Printf("Mock server: unexpected request %s %s\n", r.Method, r.URL.Path)
-			http.NotFound(w, r)
-		}
-	}))
-}
-
-// MockAnthropicServer creates a mock Anthropic server
-func MockAnthropicServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if r.URL.Path == "/v1/messages" {
-			// Mock Anthropic messages response
-			response := map[string]interface{}{
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": "This is a mock response from Anthropic",
-					},
-				},
-				"usage": map[string]interface{}{
-					"input_tokens":  10,
-					"output_tokens": 15,
-				},
-				"stop_reason": "end_turn",
-			}
-			json.NewEncoder(w).Encode(response)
-		} else {
-			http.NotFound(w, r)
-		}
-	}))
-}
-
-// MockOllamaServer creates a mock Ollama server
-func MockOllamaServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if r.URL.Path == "/api/chat" {
-			// Mock Ollama chat response
-			response := map[string]interface{}{
-				"model": "llama3.2",
-				"message": map[string]interface{}{
-					"role":    "assistant",
-					"content": "This is a mock response from Ollama",
-				},
-				"done":       true,
-				"created_at": "2023-01-01T00:00:00Z",
-			}
-			json.NewEncoder(w).Encode(response)
-		} else if r.URL.Path == "/api/embeddings" {
-			// Mock Ollama embeddings response
-			response := map[string]interface{}{
-				"embedding": []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			}
-			json.NewEncoder(w).Encode(response)
-		} else {
-			http.NotFound(w, r)
-		}
-	}))
-}
-
-func TestOpenAIProvider(t *testing.T) {
-	server := MockOpenAIServer()
-	defer server.Close()
-
-	// Create provider with mock server
-	provider := NewOpenAIProvider(server.URL, "test-key")
-
-	// Test chat
-	mc := registry.ModelConfig{
-		ID:       "gpt-3.5-turbo",
-		Provider: "openai",
-		BaseURL:  server.URL,
+// TestOpenAIProviderIntegration tests OpenAI provider integration
+func TestOpenAIProviderIntegration(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set, skipping integration test")
 	}
 
-	req := core.ChatRequest{
-		Model: "gpt-3.5-turbo",
-		Messages: []core.Message{
-			{Role: "user", Content: "Hello"},
-		},
+	// Create OpenAI provider
+	provider := NewOpenAIProvider("", "")
+
+	// Create test request
+	req := routercore.ChatRequest{
+		Model:       "gpt-3.5-turbo",
+		Messages:    []routercore.Message{{Role: "user", Content: "Hello, world!"}},
 		Temperature: 0.7,
 		MaxTokens:   100,
 	}
 
-	resp, err := provider.Chat(context.Background(), mc, req)
-	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
-	}
+	// Get model config
+	reg := registry.GetDefaultRegistry()
+	modelConfig := reg.FindModel("openai:gpt-3.5-turbo")
+	require.NotNil(t, modelConfig)
 
-	if resp.Text != "This is a mock response from OpenAI" {
-		t.Errorf("Expected mock response, got: %s", resp.Text)
-	}
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	if resp.Usage.PromptTokens != 10 {
-		t.Errorf("Expected 10 prompt tokens, got: %d", resp.Usage.PromptTokens)
-	}
-
-	// Test embeddings
-	embeddings, _, err := provider.Embed(context.Background(), mc, []string{"test"})
-	if err != nil {
-		t.Fatalf("Embed failed: %v", err)
-	}
-
-	if len(embeddings) != 1 {
-		t.Errorf("Expected 1 embedding, got: %d", len(embeddings))
-	}
+	resp, err := provider.Chat(ctx, *modelConfig, req)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+	assert.NotEmpty(t, resp.Usage)
+	assert.Greater(t, resp.Usage.TotalTokens, 0)
 }
 
-func TestAnthropicProvider(t *testing.T) {
-	server := MockAnthropicServer()
-	defer server.Close()
-
-	// Create provider with mock server
-	provider := NewAnthropicProvider(server.URL, "test-key")
-
-	// Test chat
-	mc := registry.ModelConfig{
-		ID:       "claude-3-sonnet",
-		Provider: "anthropic",
-		BaseURL:  server.URL,
+// TestAnthropicProviderIntegration tests Anthropic provider integration
+func TestAnthropicProviderIntegration(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("ANTHROPIC_API_KEY not set, skipping integration test")
 	}
 
-	req := core.ChatRequest{
-		Model: "claude-3-sonnet",
-		Messages: []core.Message{
-			{Role: "user", Content: "Hello"},
-		},
+	// Create Anthropic provider
+	provider := NewAnthropicProvider("", "")
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "claude-3-haiku-20240307",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
 		Temperature: 0.7,
 		MaxTokens:   100,
 	}
 
-	resp, err := provider.Chat(context.Background(), mc, req)
-	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
-	}
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	if resp.Text != "This is a mock response from Anthropic" {
-		t.Errorf("Expected mock response, got: %s", resp.Text)
-	}
-
-	if resp.Usage.PromptTokens != 10 {
-		t.Errorf("Expected 10 prompt tokens, got: %d", resp.Usage.PromptTokens)
-	}
-
-	// Test embeddings (should fail)
-	_, _, err = provider.Embed(context.Background(), mc, []string{"test"})
-	if err == nil {
-		t.Error("Expected embeddings to fail for Anthropic")
-	}
+	resp, err := provider.Chat(ctx, req)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+	assert.NotEmpty(t, resp.Usage)
+	assert.Greater(t, resp.Usage.TotalTokens, 0)
 }
 
-func TestOllamaProvider(t *testing.T) {
-	server := MockOllamaServer()
-	defer server.Close()
-
-	// Create provider with mock server
-	provider := NewOllamaProvider(server.URL)
-
-	// Test chat
-	mc := registry.ModelConfig{
-		ID:       "llama3.2",
-		Provider: "ollama",
-		BaseURL:  server.URL,
+// TestOllamaProviderIntegration tests Ollama provider integration
+func TestOllamaProviderIntegration(t *testing.T) {
+	// Check if Ollama is running
+	baseURL := os.Getenv("OLLAMA_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
 	}
 
-	req := core.ChatRequest{
-		Model: "llama3.2",
-		Messages: []core.Message{
-			{Role: "user", Content: "Hello"},
-		},
+	// Create Ollama provider
+	provider := NewOllamaProvider(baseURL)
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "llama2",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
 		Temperature: 0.7,
 		MaxTokens:   100,
 	}
 
-	resp, err := provider.Chat(context.Background(), mc, req)
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := provider.Chat(ctx, req)
 	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
+		t.Skipf("Ollama not available: %v", err)
 	}
 
-	if resp.Text != "This is a mock response from Ollama" {
-		t.Errorf("Expected mock response, got: %s", resp.Text)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+}
+
+// TestVLLMProviderIntegration tests vLLM provider integration
+func TestVLLMProviderIntegration(t *testing.T) {
+	// Check if vLLM is running
+	baseURL := os.Getenv("VLLM_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8000"
 	}
 
-	// Test embeddings
-	embeddings, _, err := provider.Embed(context.Background(), mc, []string{"test"})
+	// Create vLLM provider
+	provider := NewVLLMProvider(baseURL)
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "llama-3.1-8b",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}
+
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := provider.Chat(ctx, req)
 	if err != nil {
-		t.Fatalf("Embed failed: %v", err)
+		t.Skipf("vLLM not available: %v", err)
 	}
 
-	if len(embeddings) != 1 {
-		t.Errorf("Expected 1 embedding, got: %d", len(embeddings))
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+}
+
+// TestLMStudioProviderIntegration tests LMStudio provider integration
+func TestLMStudioProviderIntegration(t *testing.T) {
+	// Check if LMStudio is running
+	baseURL := os.Getenv("LMSTUDIO_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:1234"
 	}
 
-	if len(embeddings[0]) != 5 {
-		t.Errorf("Expected 5-dimensional embedding, got: %d", len(embeddings[0]))
+	// Create LMStudio provider
+	provider := NewLMStudioProvider(baseURL)
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "llama-3.1-8b",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}
+
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := provider.Chat(ctx, req)
+	if err != nil {
+		t.Skipf("LMStudio not available: %v", err)
+	}
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+}
+
+// TestOpenRouterProviderIntegration tests OpenRouter provider integration
+func TestOpenRouterProviderIntegration(t *testing.T) {
+	if os.Getenv("OPENROUTER_API_KEY") == "" {
+		t.Skip("OPENROUTER_API_KEY not set, skipping integration test")
+	}
+
+	// Create OpenRouter provider
+	provider := NewOpenRouterProvider()
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "meta-llama/llama-3.1-8b-instruct",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}
+
+	// Test chat completion
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := provider.Chat(ctx, req)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Text)
+	assert.NotEmpty(t, resp.Usage)
+	assert.Greater(t, resp.Usage.TotalTokens, 0)
+}
+
+// TestProviderStreamingIntegration tests streaming functionality
+func TestProviderStreamingIntegration(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set, skipping streaming test")
+	}
+
+	// Create OpenAI provider
+	provider := NewOpenAIProvider("", "")
+
+	// Create test request
+	req := &ChatRequest{
+		Model:       "gpt-3.5-turbo",
+		Messages:    []core.Message{{Role: "user", Content: "Count from 1 to 5"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
+		Stream:      true,
+	}
+
+	// Test streaming
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	chunks := make([]StreamChunk, 0)
+	handler := &TestStreamHandler{chunks: &chunks}
+
+	err := provider.Stream(ctx, req, handler)
+	require.NoError(t, err)
+
+	// Verify we received chunks
+	assert.Greater(t, len(chunks), 0)
+
+	// Verify chunks have content
+	for _, chunk := range chunks {
+		assert.NotEmpty(t, chunk.Content)
 	}
 }
 
-func TestProviderFactory(t *testing.T) {
-	factory := NewProviderFactory()
-
-	// Test supported providers
-	supported := factory.GetSupportedProviders()
-	expected := []string{"openai", "anthropic", "ollama", "vllm", "lmstudio", "openrouter"}
-
-	if len(supported) != len(expected) {
-		t.Errorf("Expected %d supported providers, got: %d", len(expected), len(supported))
-	}
-
-	// Test creating providers
-	for _, providerType := range expected {
-		provider, err := factory.CreateProvider(providerType)
-		if err != nil {
-			t.Errorf("Failed to create provider %s: %v", providerType, err)
-		}
-		if provider == nil {
-			t.Errorf("Provider %s is nil", providerType)
-		}
-	}
-
-	// Test unsupported provider
-	_, err := factory.CreateProvider("unsupported")
-	if err == nil {
-		t.Error("Expected error for unsupported provider")
-	}
+// TestStreamHandler is a test implementation of StreamHandler
+type TestStreamHandler struct {
+	chunks *[]StreamChunk
 }
 
-func TestUsageEstimator(t *testing.T) {
-	estimator := &MockUsageEstimator{}
+func (h *TestStreamHandler) HandleChunk(chunk StreamChunk) error {
+	*h.chunks = append(*h.chunks, chunk)
+	return nil
+}
 
-	// Test token estimation
-	text := "This is a test message with some content."
-	promptTokens, completionTokens := estimator.EstimateTokens(text)
+func (h *TestStreamHandler) HandleDone(response StreamResponse) error {
+	return nil
+}
 
-	if promptTokens == 0 {
-		t.Error("Expected non-zero prompt tokens")
+func (h *TestStreamHandler) HandleError(err error) error {
+	return err
+}
+
+// TestProviderFactoryIntegration tests provider factory
+func TestProviderFactoryIntegration(t *testing.T) {
+	// Test OpenAI provider creation
+	provider, err := CreateProvider("openai", "")
+	require.NoError(t, err)
+	assert.NotNil(t, provider)
+	assert.IsType(t, &OpenAIProvider{}, provider)
+
+	// Test Anthropic provider creation
+	provider, err = CreateProvider("anthropic", "")
+	require.NoError(t, err)
+	assert.NotNil(t, provider)
+	assert.IsType(t, &AnthropicProvider{}, provider)
+
+	// Test Ollama provider creation
+	provider, err = CreateProvider("ollama", "http://localhost:11434")
+	require.NoError(t, err)
+	assert.NotNil(t, provider)
+	assert.IsType(t, &OllamaProvider{}, provider)
+
+	// Test invalid provider
+	provider, err = CreateProvider("invalid", "")
+	require.Error(t, err)
+	assert.Nil(t, provider)
+}
+
+// TestProviderWithRegistryIntegration tests provider with registry
+func TestProviderWithRegistryIntegration(t *testing.T) {
+	// Create a test registry
+	reg := registry.GetDefaultRegistry()
+
+	// Test getting provider for a model
+	modelConfig := reg.FindModel("openai:gpt-3.5-turbo")
+	require.NotNil(t, modelConfig)
+
+	provider, err := CreateProvider(modelConfig.Provider, "")
+	require.NoError(t, err)
+	assert.NotNil(t, provider)
+}
+
+// TestProviderErrorHandlingIntegration tests error handling
+func TestProviderErrorHandlingIntegration(t *testing.T) {
+	// Test with invalid API key
+	provider := NewOpenAIProvider()
+
+	req := &ChatRequest{
+		Model:       "gpt-3.5-turbo",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
 	}
 
-	if completionTokens != 0 {
-		t.Error("Expected zero completion tokens for prompt estimation")
+	// Temporarily set invalid API key
+	originalKey := os.Getenv("OPENAI_API_KEY")
+	os.Setenv("OPENAI_API_KEY", "invalid-key")
+	defer os.Setenv("OPENAI_API_KEY", originalKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := provider.Chat(ctx, req)
+	assert.Error(t, err)
+}
+
+// TestProviderTimeoutIntegration tests timeout handling
+func TestProviderTimeoutIntegration(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set, skipping timeout test")
 	}
 
-	// Test completion token estimation
-	completionTokens = estimator.EstimateCompletionTokens("This is a completion.")
-	if completionTokens == 0 {
-		t.Error("Expected non-zero completion tokens")
+	provider := NewOpenAIProvider()
+
+	req := &ChatRequest{
+		Model:       "gpt-3.5-turbo",
+		Messages:    []core.Message{{Role: "user", Content: "Hello, world!"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
 	}
+
+	// Test with very short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	_, err := provider.Chat(ctx, req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 }

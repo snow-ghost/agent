@@ -673,9 +673,19 @@ MIT License - see [LICENSE](LICENSE) file for details.
 4. Run tests and linters
 5. Submit a pull request
 
+## Documentation
+
+- [Architecture Documentation](docs/architecture.md) - System architecture and design
+- [API Usage Guide](docs/api-guide.md) - Comprehensive API usage examples
+- [OpenAPI Specifications](docs/openapi/) - API specifications for all services
+  - [Router API](docs/openapi/router.yaml)
+  - [Worker API](docs/openapi/worker.yaml)
+  - [LLM Router API](docs/openapi/llmrouter.yaml)
+
 ## Support
 
 For issues and questions:
 - Create an issue on GitHub
 - Check the troubleshooting section
 - Review the logs for error details
+- Consult the [API Usage Guide](docs/api-guide.md) for detailed examples

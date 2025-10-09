@@ -1,0 +1,344 @@
+openapi: 3.0.3
+info:
+  title: Agent Worker API
+  description: API for worker services (light and heavy workers)
+  version: 1.0.0
+  contact:
+    name: Agent Team
+    email: support@agent.dev
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8081
+    description: Light worker server
+  - url: http://localhost:8082
+    description: Heavy worker server
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /solve:
+    post:
+      summary: Solve a task
+      description: Solves a task using the worker's capabilities
+      operationId: solveTask
+      tags:
+        - Tasks
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Task'
+      responses:
+        '200':
+          description: Task solved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status of the worker
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  service:
+                    type: string
+                    example: "agent-worker"
+                  type:
+                    type: string
+                    example: "light"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /ready:
+    get:
+      summary: Readiness check
+      description: Returns the readiness status of the worker
+      operationId: readinessCheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  worker_type:
+                    type: string
+                    example: "light"
+                  ready:
+                    type: boolean
+                    example: true
+
+  /caps:
+    get:
+      summary: Get capabilities
+      description: Returns the capabilities of the worker
+      operationId: getCapabilities
+      tags:
+        - System
+      responses:
+        '200':
+          description: Capabilities retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worker_type:
+                    type: string
+                    example: "light"
+                  capabilities:
+                    type: object
+                    properties:
+                      use_kb:
+                        type: boolean
+                        example: true
+                      use_wasm:
+                        type: boolean
+                        example: false
+                      use_llm:
+                        type: boolean
+                        example: false
+                  capabilities_string:
+                    type: string
+                    example: "KB"
+
+  /metrics:
+    get:
+      summary: Get metrics
+      description: Returns Prometheus-compatible metrics
+      operationId: getMetrics
+      tags:
+        - System
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP agent_worker_requests_total Total number of requests
+                  # TYPE agent_worker_requests_total counter
+                  agent_worker_requests_total{worker_type="light"} 100
+                  
+                  # HELP agent_worker_request_duration_seconds Request duration in seconds
+                  # TYPE agent_worker_request_duration_seconds histogram
+                  agent_worker_request_duration_seconds_bucket{worker_type="light",le="0.1"} 80
+                  agent_worker_request_duration_seconds_bucket{worker_type="light",le="0.5"} 95
+                  agent_worker_request_duration_seconds_bucket{worker_type="light",le="1.0"} 100
+
+components:
+  schemas:
+    Task:
+      type: object
+      required:
+        - id
+        - domain
+        - spec
+        - input
+        - flags
+        - budget
+      properties:
+        id:
+          type: string
+          description: Unique task identifier
+          example: "task-123"
+        domain:
+          type: string
+          description: Task domain
+          example: "algorithms"
+        spec:
+          $ref: '#/components/schemas/Spec'
+        input:
+          type: object
+          description: Task input data
+          example:
+            numbers: [3, 1, 2]
+        flags:
+          $ref: '#/components/schemas/TaskFlags'
+        budget:
+          $ref: '#/components/schemas/Budget'
+
+    Spec:
+      type: object
+      required:
+        - success_criteria
+        - metrics_weights
+      properties:
+        success_criteria:
+          type: array
+          items:
+            type: string
+          description: List of success criteria
+          example: ["sorted_non_decreasing"]
+        props:
+          type: object
+          description: Additional properties
+          example:
+            type: "sort"
+        metrics_weights:
+          type: object
+          additionalProperties:
+            type: number
+          description: Weights for different metrics
+          example:
+            cases_passed: 1.0
+            cases_total: 0.0
+
+    TaskFlags:
+      type: object
+      properties:
+        requires_sandbox:
+          type: boolean
+          description: Whether the task requires WASM sandbox
+          example: false
+        max_complexity:
+          type: integer
+          description: Maximum complexity level
+          example: 3
+
+    Budget:
+      type: object
+      required:
+        - timeout
+      properties:
+        timeout:
+          type: string
+          description: Task timeout duration
+          example: "30s"
+        max_cost:
+          type: number
+          description: Maximum cost for the task
+          example: 0.01
+
+    Result:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the task was solved successfully
+          example: true
+        output:
+          type: object
+          description: Task output data
+          example:
+            sorted_numbers: [1, 2, 3]
+        metrics:
+          type: object
+          additionalProperties:
+            type: number
+          description: Task metrics
+          example:
+            cases_passed: 1
+            cases_total: 1
+        cost:
+          type: number
+          description: Cost of solving the task
+          example: 0.001
+        duration:
+          type: string
+          description: Time taken to solve the task
+          example: "150ms"
+        error:
+          type: string
+          description: Error message if task failed
+          example: "Invalid input data"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+        - code
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "InvalidInput"
+        message:
+          type: string
+          description: Error message
+          example: "Invalid task data provided"
+        code:
+          type: integer
+          description: HTTP status code
+          example: 400
+        type:
+          type: string
+          description: Error type
+          example: "InvalidInput"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication
+
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication
+
+tags:
+  - name: Tasks
+    description: Task solving operations
+  - name: System
+    description: System health and status operations

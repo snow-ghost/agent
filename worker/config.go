@@ -92,3 +92,26 @@ func parseCommaSeparated(value string) []string {
 	}
 	return result
 }
+
+// LogConfig logs the configuration in a structured format
+func (c *Config) LogConfig(logger interface{}) {
+	// Use type assertion to check if logger has Info method
+	if slogLogger, ok := logger.(interface {
+		Info(msg string, args ...any)
+	}); ok {
+		slogLogger.Info("worker configuration loaded",
+			"worker_type", c.WorkerType,
+			"worker_port", c.WorkerPort,
+			"llm_mode", c.LLMMode,
+			"policy_allow_tools", c.PolicyAllowTools,
+			"sandbox_mem_mb", c.SandboxMemMB,
+			"task_timeout", c.TaskTimeout.String(),
+			"hypotheses_dir", c.HypothesesDir,
+			"artifacts_dir", c.ArtifactsDir,
+			"log_level", c.LogLevel,
+			"llm_router_url", c.LLMRouterURL,
+			"default_model", c.DefaultModel,
+			"model_tag", c.ModelTag,
+		)
+	}
+}

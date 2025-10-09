@@ -1,0 +1,596 @@
+openapi: 3.0.3
+info:
+  title: Agent LLM Router API
+  description: API for routing LLM requests to different providers with load balancing and cost optimization
+  version: 1.0.0
+  contact:
+    name: Agent Team
+    email: support@agent.dev
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8090
+    description: Development server
+  - url: https://llm.agent.dev
+    description: Production server
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /v1/chat/completions:
+    post:
+      summary: Create chat completion
+      description: Creates a chat completion using the best available LLM provider
+      operationId: createChatCompletion
+      tags:
+        - Chat
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            example:
+              model: "gpt-3.5-turbo"
+              messages:
+                - role: "user"
+                  content: "Hello, how are you?"
+              temperature: 0.7
+              max_tokens: 100
+              stream: false
+      responses:
+        '200':
+          description: Chat completion created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/StreamChunk'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/embeddings:
+    post:
+      summary: Create embeddings
+      description: Creates embeddings for the given input text
+      operationId: createEmbeddings
+      tags:
+        - Embeddings
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            example:
+              model: "text-embedding-ada-002"
+              input: "The quick brown fox jumps over the lazy dog"
+      responses:
+        '200':
+          description: Embeddings created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/models:
+    get:
+      summary: List models
+      description: Lists all available models across providers
+      operationId: listModels
+      tags:
+        - Models
+      responses:
+        '200':
+          description: Models retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelsResponse'
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status of the LLM router
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  service:
+                    type: string
+                    example: "llmrouter"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /metrics:
+    get:
+      summary: Get metrics
+      description: Returns Prometheus-compatible metrics
+      operationId: getMetrics
+      tags:
+        - System
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP llmrouter_requests_total Total number of requests
+                  # TYPE llmrouter_requests_total counter
+                  llmrouter_requests_total{provider="openai",model="gpt-3.5-turbo"} 100
+                  
+                  # HELP llmrouter_request_duration_seconds Request duration in seconds
+                  # TYPE llmrouter_request_duration_seconds histogram
+                  llmrouter_request_duration_seconds_bucket{provider="openai",le="0.5"} 80
+                  llmrouter_request_duration_seconds_bucket{provider="openai",le="1.0"} 95
+                  llmrouter_request_duration_seconds_bucket{provider="openai",le="2.0"} 100
+
+  /config:
+    get:
+      summary: Get configuration
+      description: Returns the current router configuration
+      operationId: getConfig
+      tags:
+        - System
+      responses:
+        '200':
+          description: Configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: string
+                    example: ["openai", "anthropic", "cohere"]
+                  default_strategy:
+                    type: string
+                    example: "cost-aware"
+                  strategies:
+                    type: array
+                    items:
+                      type: string
+                    example: ["cost-aware", "latency-based", "load-balancing"]
+
+  /providers:
+    get:
+      summary: List providers
+      description: Lists all configured providers
+      operationId: listProviders
+      tags:
+        - System
+      responses:
+        '200':
+          description: Providers retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                example: ["openai", "anthropic", "cohere"]
+
+  /strategies:
+    get:
+      summary: List strategies
+      description: Lists all available routing strategies
+      operationId: listStrategies
+      tags:
+        - System
+      responses:
+        '200':
+          description: Strategies retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                example: ["cost-aware", "latency-based", "load-balancing", "a-b-testing"]
+
+components:
+  schemas:
+    ChatRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          description: Model to use for completion
+          example: "gpt-3.5-turbo"
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+          description: List of messages in the conversation
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          description: Sampling temperature
+          example: 0.7
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Maximum number of tokens to generate
+          example: 100
+        stream:
+          type: boolean
+          description: Whether to stream the response
+          example: false
+        metadata:
+          type: object
+          description: Additional metadata for routing
+          example:
+            task_domain: "algorithms"
+            priority: "high"
+
+    Message:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+          description: Role of the message sender
+          example: "user"
+        content:
+          type: string
+          description: Content of the message
+          example: "Hello, how are you?"
+
+    ChatResponse:
+      type: object
+      required:
+        - id
+        - object
+        - created
+        - model
+        - choices
+        - usage
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the completion
+          example: "chatcmpl-123"
+        object:
+          type: string
+          example: "chat.completion"
+        created:
+          type: integer
+          description: Unix timestamp of creation
+          example: 1677652288
+        model:
+          type: string
+          description: Model used for completion
+          example: "gpt-3.5-turbo"
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Choice'
+          description: List of completion choices
+        usage:
+          $ref: '#/components/schemas/Usage'
+        cost:
+          type: number
+          description: Cost of the completion
+          example: 0.001
+
+    Choice:
+      type: object
+      required:
+        - index
+        - message
+        - finish_reason
+      properties:
+        index:
+          type: integer
+          description: Index of the choice
+          example: 0
+        message:
+          $ref: '#/components/schemas/Message'
+        finish_reason:
+          type: string
+          enum: [stop, length, content_filter, null]
+          description: Reason for completion
+          example: "stop"
+
+    StreamChunk:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "chatcmpl-123"
+        object:
+          type: string
+          example: "chat.completion.chunk"
+        created:
+          type: integer
+          example: 1677652288
+        model:
+          type: string
+          example: "gpt-3.5-turbo"
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+              finish_reason:
+                type: string
+
+    EmbeddingRequest:
+      type: object
+      required:
+        - model
+        - input
+      properties:
+        model:
+          type: string
+          description: Model to use for embeddings
+          example: "text-embedding-ada-002"
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          description: Input text to embed
+          example: "The quick brown fox jumps over the lazy dog"
+
+    EmbeddingResponse:
+      type: object
+      required:
+        - object
+        - data
+        - model
+        - usage
+      properties:
+        object:
+          type: string
+          example: "list"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Embedding'
+          description: List of embeddings
+        model:
+          type: string
+          description: Model used for embeddings
+          example: "text-embedding-ada-002"
+        usage:
+          $ref: '#/components/schemas/Usage'
+        cost:
+          type: number
+          description: Cost of the embeddings
+          example: 0.0001
+
+    Embedding:
+      type: object
+      required:
+        - object
+        - index
+        - embedding
+      properties:
+        object:
+          type: string
+          example: "embedding"
+        index:
+          type: integer
+          description: Index of the embedding
+          example: 0
+        embedding:
+          type: array
+          items:
+            type: number
+          description: Vector representation of the input
+          example: [0.1, 0.2, 0.3, ...]
+
+    Usage:
+      type: object
+      required:
+        - prompt_tokens
+        - completion_tokens
+        - total_tokens
+      properties:
+        prompt_tokens:
+          type: integer
+          description: Number of tokens in the prompt
+          example: 10
+        completion_tokens:
+          type: integer
+          description: Number of tokens in the completion
+          example: 20
+        total_tokens:
+          type: integer
+          description: Total number of tokens
+          example: 30
+
+    ModelsResponse:
+      type: object
+      required:
+        - object
+        - data
+      properties:
+        object:
+          type: string
+          example: "list"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+          description: List of available models
+
+    Model:
+      type: object
+      required:
+        - id
+        - object
+        - created
+        - owned_by
+      properties:
+        id:
+          type: string
+          description: Model identifier
+          example: "gpt-3.5-turbo"
+        object:
+          type: string
+          example: "model"
+        created:
+          type: integer
+          description: Unix timestamp of creation
+          example: 1677610602
+        owned_by:
+          type: string
+          description: Organization that owns the model
+          example: "openai"
+        capabilities:
+          type: object
+          properties:
+            chat_completion:
+              type: boolean
+              example: true
+            embeddings:
+              type: boolean
+              example: false
+        cost_per_token:
+          type: object
+          properties:
+            prompt:
+              type: number
+              example: 0.0015
+            completion:
+              type: number
+              example: 0.002
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+        - code
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "InvalidRequest"
+        message:
+          type: string
+          description: Error message
+          example: "Invalid model specified"
+        code:
+          type: integer
+          description: HTTP status code
+          example: 400
+        type:
+          type: string
+          description: Error type
+          example: "InvalidRequest"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication
+
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication
+
+tags:
+  - name: Chat
+    description: Chat completion operations
+  - name: Embeddings
+    description: Embedding operations
+  - name: Models
+    description: Model management operations
+  - name: System
+    description: System health and status operations

@@ -143,7 +143,7 @@ models:
 
   - id: "lmstudio:llama-3.1-8b"
     provider: "lmstudio"
-    base_url: "http://localhost:1234"
+    base_url: "http://host.docker.internal:1234"
     api_key_env: ""
     kind: "chat"
     pricing:
@@ -172,3 +172,19 @@ models:
     max_rpm: 5000
     max_tpm: 100000
     tags: ["general", "openrouter"]
+
+  - id: "lmstudio:qwen/qwen3-4b-2507"
+    provider: "lmstudio"
+    base_url: "http://host.docker.internal:1234"
+    api_key_env: ""
+    kind: "chat"
+    pricing:
+      currency: "USD"
+      input_per_1k: 0.0
+      output_per_1k: 0.0
+    default_params:
+      temperature: 0.3
+      max_tokens: 2048
+    max_rpm: 1000
+    max_tpm: 20000
+    tags: ["local", "general", "lmstudio", "qwen"]

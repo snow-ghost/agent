@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/snow-ghost/agent/core"
 )
 
@@ -27,6 +29,12 @@ type KnowledgeBase interface {
 type Registry struct {
 	skills        []core.Skill
 	hypothesesDir string
+	// Performance optimizations
+	cache        *lru.Cache[string, []core.Skill]
+	domainIndex  map[string][]core.Skill
+	keywordIndex map[string][]core.Skill
+	mu           sync.RWMutex
+	cacheTTL     time.Duration
 }
 
 // HypothesisMetadata represents metadata for a saved hypothesis
@@ -43,9 +51,16 @@ type HypothesisMetadata struct {
 
 // NewRegistry creates a new in-memory knowledge base registry
 func NewRegistry() *Registry {
+	// Create cache with 1000 entries
+	cache, _ := lru.New[string, []core.Skill](1000)
+
 	registry := &Registry{
 		skills:        make([]core.Skill, 0),
 		hypothesesDir: "./hypotheses",
+		cache:         cache,
+		domainIndex:   make(map[string][]core.Skill),
+		keywordIndex:  make(map[string][]core.Skill),
+		cacheTTL:      5 * time.Minute,
 	}
 
 	// Register built-in skills
