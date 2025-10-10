@@ -35,10 +35,15 @@ func NewOpenRouterProvider(baseURL, apiKey string) *OpenRouterProvider {
 }
 
 // Chat performs chat completion using OpenRouter (OpenAI-compatible API)
-func (p *OpenRouterProvider) Chat(ctx context.Context, mc registry.ModelConfig, req core.ChatRequest) (core.ChatResponse, error) {
+func (p *OpenRouterProvider) Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error) {
+	// Type assert req to core.ChatRequest
+	chatReq, ok := req.(core.ChatRequest)
+	if !ok {
+		return core.ChatResponse{}, fmt.Errorf("invalid request type, expected core.ChatRequest")
+	}
 	// Convert messages
-	messages := make([]openai.ChatCompletionMessage, len(req.Messages))
-	for i, msg := range req.Messages {
+	messages := make([]openai.ChatCompletionMessage, len(chatReq.Messages))
+	for i, msg := range chatReq.Messages {
 		messages[i] = openai.ChatCompletionMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
@@ -48,7 +53,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, mc registry.ModelConfig, 
 
 	// Convert tools if provided
 	var tools []openai.Tool
-	for _, tool := range req.Tools {
+	for _, tool := range chatReq.Tools {
 		openaiTool := openai.Tool{
 			Type: openai.ToolType(tool.Type),
 		}
@@ -66,10 +71,10 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, mc registry.ModelConfig, 
 	request := openai.ChatCompletionRequest{
 		Model:       mc.ID,
 		Messages:    messages,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		MaxTokens:   req.MaxTokens,
-		Stream:      req.Stream,
+		Temperature: chatReq.Temperature,
+		TopP:        chatReq.TopP,
+		MaxTokens:   chatReq.MaxTokens,
+		Stream:      chatReq.Stream,
 	}
 
 	if len(tools) > 0 {
@@ -116,7 +121,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, mc registry.ModelConfig, 
 }
 
 // Embed generates embeddings using OpenRouter (OpenAI-compatible API)
-func (p *OpenRouterProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, core.Usage, error) {
+func (p *OpenRouterProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, interface{}, error) {
 	request := openai.EmbeddingRequest{
 		Input: input,
 		Model: openai.EmbeddingModel(mc.ID),

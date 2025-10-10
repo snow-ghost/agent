@@ -66,9 +66,15 @@ func NewAnthropicProvider(baseURL, apiKey string) *AnthropicProvider {
 
 // Chat performs chat completion using Anthropic API
 func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error) {
+	// Type assert req to core.ChatRequest
+	chatReq, ok := req.(core.ChatRequest)
+	if !ok {
+		return core.ChatResponse{}, fmt.Errorf("invalid request type, expected core.ChatRequest")
+	}
+
 	// Convert messages (Anthropic uses different format)
-	messages := make([]AnthropicMessage, 0, len(req.Messages))
-	for _, msg := range req.Messages {
+	messages := make([]AnthropicMessage, 0, len(chatReq.Messages))
+	for _, msg := range chatReq.Messages {
 		// Skip system messages as Anthropic handles them differently
 		if msg.Role == "system" {
 			continue
@@ -82,10 +88,10 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 	// Build request
 	anthropicReq := AnthropicRequest{
 		Model:       mc.ID,
-		MaxTokens:   req.MaxTokens,
+		MaxTokens:   chatReq.MaxTokens,
 		Messages:    messages,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
+		Temperature: chatReq.Temperature,
+		TopP:        chatReq.TopP,
 	}
 
 	// Marshal request
@@ -118,7 +124,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 	// Parse response
 	var anthropicResp AnthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
-		return routercore.ChatResponse{}, fmt.Errorf("failed to decode anthropic response: %w", err)
+		return core.ChatResponse{}, fmt.Errorf("failed to decode anthropic response: %w", err)
 	}
 
 	// Extract text content
@@ -130,9 +136,9 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 	}
 
 	// Convert response
-	chatResp := routercore.ChatResponse{
+	chatResp := core.ChatResponse{
 		Text: text,
-		Usage: routercore.Usage{
+		Usage: core.Usage{
 			PromptTokens:     anthropicResp.Usage.InputTokens,
 			CompletionTokens: anthropicResp.Usage.OutputTokens,
 			TotalTokens:      anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
@@ -146,7 +152,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, mc registry.ModelConfig, r
 }
 
 // Embed generates embeddings (Anthropic doesn't have embeddings API, return error)
-func (p *AnthropicProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, core.Usage, error) {
+func (p *AnthropicProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, interface{}, error) {
 	return nil, core.Usage{}, fmt.Errorf("anthropic does not support embeddings")
 }
 

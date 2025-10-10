@@ -9,231 +9,139 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewConnectionPool(t *testing.T) {
+func TestNewOptimizedHTTPClient(t *testing.T) {
 	config := &ConnectionPoolConfig{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 	}
 
-	pool := NewConnectionPool(config)
-	require.NotNil(t, pool)
+	client := NewOptimizedHTTPClient(config)
+	require.NotNil(t, client)
 
 	// Verify the transport is configured correctly
-	transport := pool.Transport.(*http.Transport)
+	transport := client.Transport.(*http.Transport)
 	assert.Equal(t, config.MaxIdleConns, transport.MaxIdleConns)
 	assert.Equal(t, config.MaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
 }
 
-func TestNewConnectionPool_DefaultConfig(t *testing.T) {
-	pool := NewConnectionPool(nil)
-	require.NotNil(t, pool)
+func TestNewOptimizedHTTPClient_DefaultConfig(t *testing.T) {
+	client := NewOptimizedHTTPClient(nil)
+	require.NotNil(t, client)
 
-	// Verify default values are used
-	transport := pool.Transport.(*http.Transport)
+	// Should use default configuration
+	transport := client.Transport.(*http.Transport)
 	assert.Equal(t, 100, transport.MaxIdleConns)
 	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
 }
 
-func TestNewConnectionPool_CustomTimeouts(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        50,
-		MaxIdleConnsPerHost: 5,
-	}
-
-	pool := NewConnectionPool(config)
-	require.NotNil(t, pool)
-
-	transport := pool.Transport.(*http.Transport)
-	assert.Equal(t, 50, transport.MaxIdleConns)
-	assert.Equal(t, 5, transport.MaxIdleConnsPerHost)
-}
-
-func TestConnectionPool_GetClient(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
-
-	pool := NewConnectionPool(config)
-	client := pool.GetClient()
-
+func TestNewLLMHTTPClient(t *testing.T) {
+	client := NewLLMHTTPClient()
 	require.NotNil(t, client)
-	assert.Equal(t, pool.Transport, client.Transport)
-	assert.Equal(t, 30*time.Second, client.Timeout)
-}
 
-func TestConnectionPool_GetClient_MultipleCalls(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
-
-	pool := NewConnectionPool(config)
-
-	// Get multiple clients
-	client1 := pool.GetClient()
-	client2 := pool.GetClient()
-
-	require.NotNil(t, client1)
-	require.NotNil(t, client2)
-
-	// Clients should be different instances but share the same transport
-	assert.NotEqual(t, client1, client2)
-	assert.Equal(t, client1.Transport, client2.Transport)
-}
-
-func TestConnectionPool_Close(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
-
-	pool := NewConnectionPool(config)
-
-	// Close should not panic
-	assert.NotPanics(t, func() {
-		pool.Close()
-	})
-}
-
-func TestConnectionPool_CloseIdleConnections(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
-
-	pool := NewConnectionPool(config)
-
-	// CloseIdleConnections should not panic
-	assert.NotPanics(t, func() {
-		pool.CloseIdleConnections()
-	})
-}
-
-func TestConnectionPool_Stats(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-	}
-
-	pool := NewConnectionPool(config)
-	stats := pool.Stats()
-
-	assert.Equal(t, 100, stats.MaxIdleConns)
-	assert.Equal(t, 10, stats.MaxIdleConnsPerHost)
-	assert.Equal(t, 0, stats.IdleConns) // Initially 0
-}
-
-func TestConnectionPool_Stats_AfterUsage(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
-
-	pool := NewConnectionPool(config)
-
-	// Get a client and make a request to create connections
-	client := pool.GetClient()
-
-	// Create a test server
-	server := &http.Server{
-		Addr: "localhost:0",
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}),
-	}
-
-	// Start server
-	go server.ListenAndServe()
-	defer server.Close()
-
-	// Make a request to create connections
-	req, _ := http.NewRequest("GET", "http://localhost:8080/test", nil)
-	client.Do(req) // This will fail but will create connections
-
-	// Check stats
-	stats := pool.Stats()
-	assert.Equal(t, 10, stats.MaxIdleConns)
-	assert.Equal(t, 2, stats.MaxIdleConnsPerHost)
-}
-
-func TestDefaultConnectionPoolConfig(t *testing.T) {
-	config := DefaultConnectionPoolConfig()
-
-	assert.Equal(t, 100, config.MaxIdleConns)
-	assert.Equal(t, 10, config.MaxIdleConnsPerHost)
-}
-
-func TestConnectionPool_ConcurrentAccess(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 5,
-	}
-
-	pool := NewConnectionPool(config)
-
-	// Test concurrent access
-	done := make(chan bool, 10)
-
-	for i := 0; i < 10; i++ {
-		go func() {
-			client := pool.GetClient()
-			assert.NotNil(t, client)
-			time.Sleep(10 * time.Millisecond)
-			done <- true
-		}()
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
-		<-done
-	}
-
-	// Verify pool is still functional
-	client := pool.GetClient()
-	assert.NotNil(t, client)
-}
-
-func TestConnectionPool_TransportConfiguration(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        50,
-		MaxIdleConnsPerHost: 5,
-	}
-
-	pool := NewConnectionPool(config)
-	transport := pool.Transport.(*http.Transport)
-
-	// Verify transport configuration
+	// Check that it's configured for LLM usage
+	transport := client.Transport.(*http.Transport)
 	assert.Equal(t, 50, transport.MaxIdleConns)
+	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
+	assert.Equal(t, 20, transport.MaxConnsPerHost)
+}
+
+func TestNewWorkerHTTPClient(t *testing.T) {
+	client := NewWorkerHTTPClient()
+	require.NotNil(t, client)
+
+	// Check that it's configured for worker usage
+	transport := client.Transport.(*http.Transport)
+	assert.Equal(t, 20, transport.MaxIdleConns)
 	assert.Equal(t, 5, transport.MaxIdleConnsPerHost)
-	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
-	assert.Equal(t, 90*time.Second, transport.ResponseHeaderTimeout)
-	assert.True(t, transport.DisableKeepAlives)
+	assert.Equal(t, 10, transport.MaxConnsPerHost)
 }
 
-func TestConnectionPool_ClientTimeout(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-	}
+func TestHTTPClientManager(t *testing.T) {
+	manager := NewHTTPClientManager()
+	require.NotNil(t, manager)
 
-	pool := NewConnectionPool(config)
-	client := pool.GetClient()
+	// Test getting default clients
+	llmClient := manager.GetClient("llm")
+	workerClient := manager.GetClient("worker")
+	defaultClient := manager.GetClient("default")
 
-	// Verify client timeout
-	assert.Equal(t, 30*time.Second, client.Timeout)
+	require.NotNil(t, llmClient)
+	require.NotNil(t, workerClient)
+	require.NotNil(t, defaultClient)
+
+	// Test getting non-existent client (should return default)
+	unknownClient := manager.GetClient("unknown")
+	assert.Equal(t, defaultClient, unknownClient)
 }
 
-func TestConnectionPool_ZeroValues(t *testing.T) {
-	config := &ConnectionPoolConfig{
-		MaxIdleConns:        0,
-		MaxIdleConnsPerHost: 0,
-	}
+func TestHTTPClientManager_AddClient(t *testing.T) {
+	manager := NewHTTPClientManager()
+	customClient := &http.Client{Timeout: 30 * time.Second}
 
-	pool := NewConnectionPool(config)
-	transport := pool.Transport.(*http.Transport)
+	manager.AddClient("custom", customClient)
+	retrievedClient := manager.GetClient("custom")
 
-	// Zero values should be handled gracefully
-	assert.Equal(t, 0, transport.MaxIdleConns)
-	assert.Equal(t, 0, transport.MaxIdleConnsPerHost)
+	assert.Equal(t, customClient, retrievedClient)
+}
+
+func TestHTTPClientManager_CloseAll(t *testing.T) {
+	manager := NewHTTPClientManager()
+
+	// Should not panic
+	assert.NotPanics(t, func() {
+		manager.CloseAll()
+	})
+}
+
+func TestHTTPClientManager_GetStats(t *testing.T) {
+	manager := NewHTTPClientManager()
+	stats := manager.GetStats()
+
+	require.NotNil(t, stats)
+	assert.Contains(t, stats, "llm")
+	assert.Contains(t, stats, "worker")
+	assert.Contains(t, stats, "default")
+}
+
+func TestConnectionPoolMetrics(t *testing.T) {
+	metrics := NewConnectionPoolMetrics()
+	require.NotNil(t, metrics)
+
+	// Test initial state
+	assert.Equal(t, int64(0), metrics.TotalRequests)
+	assert.Equal(t, int64(0), metrics.SuccessfulRequests)
+	assert.Equal(t, int64(0), metrics.FailedRequests)
+	assert.Equal(t, 0.0, metrics.GetSuccessRate())
+
+	// Test recording successful request
+	metrics.RecordRequest(true, 100*time.Millisecond)
+	assert.Equal(t, int64(1), metrics.TotalRequests)
+	assert.Equal(t, int64(1), metrics.SuccessfulRequests)
+	assert.Equal(t, int64(0), metrics.FailedRequests)
+	assert.Equal(t, 1.0, metrics.GetSuccessRate())
+
+	// Test recording failed request
+	metrics.RecordRequest(false, 200*time.Millisecond)
+	assert.Equal(t, int64(2), metrics.TotalRequests)
+	assert.Equal(t, int64(1), metrics.SuccessfulRequests)
+	assert.Equal(t, int64(1), metrics.FailedRequests)
+	assert.Equal(t, 0.5, metrics.GetSuccessRate())
+
+	// Test latency tracking
+	assert.Equal(t, 100*time.Millisecond, metrics.MinLatency)
+	assert.Equal(t, 200*time.Millisecond, metrics.MaxLatency)
+}
+
+func TestConnectionPoolMetrics_GetStats(t *testing.T) {
+	metrics := NewConnectionPoolMetrics()
+	metrics.RecordRequest(true, 100*time.Millisecond)
+	metrics.RecordRequest(false, 200*time.Millisecond)
+
+	stats := metrics.GetStats()
+	require.NotNil(t, stats)
+
+	assert.Equal(t, int64(2), stats["total_requests"])
+	assert.Equal(t, int64(1), stats["successful_requests"])
+	assert.Equal(t, int64(1), stats["failed_requests"])
+	assert.Equal(t, 0.5, stats["success_rate"])
 }

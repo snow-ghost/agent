@@ -42,7 +42,7 @@ func (f *DefaultProviderFactory) CreateProviderFromConfig(mc registry.ModelConfi
 	case "anthropic":
 		return CreateAnthropicProviderFromConfig(mc, registry)
 	case "ollama":
-		return CreateOllamaProviderFromConfig(mc, registry), nil
+		return CreateOllamaProviderFromConfig(mc, registry)
 	case "vllm":
 		return CreateVLLMProviderFromConfig(mc, registry)
 	case "lmstudio":

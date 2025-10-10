@@ -67,10 +67,15 @@ func NewOllamaProvider(baseURL string) *OllamaProvider {
 }
 
 // Chat performs chat completion using Ollama API
-func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req core.ChatRequest) (core.ChatResponse, error) {
+func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error) {
+	// Type assert req to core.ChatRequest
+	chatReq, ok := req.(core.ChatRequest)
+	if !ok {
+		return core.ChatResponse{}, fmt.Errorf("invalid request type, expected core.ChatRequest")
+	}
 	// Convert messages
-	messages := make([]OllamaMessage, len(req.Messages))
-	for i, msg := range req.Messages {
+	messages := make([]OllamaMessage, len(chatReq.Messages))
+	for i, msg := range chatReq.Messages {
 		messages[i] = OllamaMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
@@ -83,9 +88,9 @@ func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req 
 		Messages: messages,
 		Stream:   false, // We'll handle streaming separately
 		Options: map[string]interface{}{
-			"temperature": req.Temperature,
-			"top_p":       req.TopP,
-			"num_predict": req.MaxTokens,
+			"temperature": chatReq.Temperature,
+			"top_p":       chatReq.TopP,
+			"num_predict": chatReq.MaxTokens,
 		},
 	}
 
@@ -123,7 +128,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req 
 	// Estimate usage (Ollama doesn't provide token counts)
 	estimator := &MockUsageEstimator{}
 	promptTokens := 0
-	for _, msg := range req.Messages {
+	for _, msg := range chatReq.Messages {
 		tokens, _ := estimator.EstimateTokens(msg.Content)
 		promptTokens += tokens
 	}
@@ -146,7 +151,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req 
 }
 
 // Embed generates embeddings using Ollama API
-func (p *OllamaProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, core.Usage, error) {
+func (p *OllamaProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, interface{}, error) {
 	embeddings := make([][]float32, len(input))
 	totalTokens := 0
 
@@ -206,12 +211,12 @@ func (p *OllamaProvider) Embed(ctx context.Context, mc registry.ModelConfig, inp
 }
 
 // CreateOllamaProviderFromConfig creates an Ollama provider from model config
-func CreateOllamaProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) *OllamaProvider {
+func CreateOllamaProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (Provider, error) {
 	return &OllamaProvider{
 		BaseProvider: NewBaseProvider(registry),
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 		baseURL: mc.BaseURL,
-	}
+	}, nil
 }
