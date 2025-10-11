@@ -13,6 +13,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const (
+	requestIDKey contextKey = "request_id"
+)
+
 // LoggingConfig holds configuration for the logging middleware
 type LoggingConfig struct {
 	LogLevel        string   `json:"log_level"`         // DEBUG, INFO, WARN, ERROR
@@ -57,6 +64,9 @@ func LoggingMiddleware(config *LoggingConfig, logger *slog.Logger) func(http.Han
 	if config == nil {
 		config = DefaultLoggingConfig()
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +74,7 @@ func LoggingMiddleware(config *LoggingConfig, logger *slog.Logger) func(http.Han
 			requestID := uuid.New().String()
 
 			// Add request ID to context
-			ctx := context.WithValue(r.Context(), "request_id", requestID)
+			ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 			r = r.WithContext(ctx)
 
 			// Create response writer wrapper
@@ -95,6 +105,9 @@ func LoggingMiddleware(config *LoggingConfig, logger *slog.Logger) func(http.Han
 
 // logRequest logs the incoming HTTP request
 func logRequest(r *http.Request, requestID string, config *LoggingConfig, logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
 	// Extract trace information
 	traceID := getTraceID(r.Context())
 	spanID := getSpanID(r.Context())
@@ -137,6 +150,9 @@ func logRequest(r *http.Request, requestID string, config *LoggingConfig, logger
 
 // logResponse logs the HTTP response
 func logResponse(r *http.Request, rw *loggingResponseWriter, requestID string, duration time.Duration, config *LoggingConfig, logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
 	// Extract trace information
 	traceID := getTraceID(r.Context())
 	spanID := getSpanID(r.Context())
@@ -148,7 +164,7 @@ func logResponse(r *http.Request, rw *loggingResponseWriter, requestID string, d
 		"path", r.URL.Path,
 		"status_code", rw.statusCode,
 		"duration_ms", duration.Milliseconds(),
-		"content_length", rw.body.Len(),
+		"content_length", getBodyLength(rw.body),
 	}
 
 	// Add trace information if available
@@ -242,8 +258,19 @@ func getSpanID(ctx context.Context) string {
 	return ""
 }
 
+// getBodyLength safely gets the length of a buffer, returning 0 if nil
+func getBodyLength(body *bytes.Buffer) int {
+	if body == nil {
+		return 0
+	}
+	return body.Len()
+}
+
 // LogLLMRequest logs LLM-specific request information
 func LogLLMRequest(ctx context.Context, logger *slog.Logger, model, provider string, inputTokens, outputTokens int, cost float64, duration time.Duration) {
+	if logger == nil {
+		return
+	}
 	attrs := []any{
 		"model", model,
 		"provider", provider,
@@ -267,11 +294,21 @@ func LogLLMRequest(ctx context.Context, logger *slog.Logger, model, provider str
 
 // LogLLMError logs LLM-specific error information
 func LogLLMError(ctx context.Context, logger *slog.Logger, model, provider string, err error, duration time.Duration) {
+	if logger == nil {
+		return
+	}
+
 	attrs := []any{
 		"model", model,
 		"provider", provider,
-		"error", err.Error(),
 		"duration_ms", duration.Milliseconds(),
+	}
+
+	// Add error message if error is not nil
+	if err != nil {
+		attrs = append(attrs, "error", err.Error())
+	} else {
+		attrs = append(attrs, "error", "unknown error")
 	}
 
 	// Add trace information
@@ -287,6 +324,9 @@ func LogLLMError(ctx context.Context, logger *slog.Logger, model, provider strin
 
 // LogCacheHit logs cache hit information
 func LogCacheHit(ctx context.Context, logger *slog.Logger, cacheKey string, hitType string) {
+	if logger == nil {
+		return
+	}
 	attrs := []any{
 		"cache_key", cacheKey,
 		"hit_type", hitType,
@@ -302,6 +342,9 @@ func LogCacheHit(ctx context.Context, logger *slog.Logger, cacheKey string, hitT
 
 // LogCacheMiss logs cache miss information
 func LogCacheMiss(ctx context.Context, logger *slog.Logger, cacheKey string, missType string) {
+	if logger == nil {
+		return
+	}
 	attrs := []any{
 		"cache_key", cacheKey,
 		"miss_type", missType,
@@ -317,6 +360,9 @@ func LogCacheMiss(ctx context.Context, logger *slog.Logger, cacheKey string, mis
 
 // LogRateLimit logs rate limiting information
 func LogRateLimit(ctx context.Context, logger *slog.Logger, key string, limit int, remaining int) {
+	if logger == nil {
+		return
+	}
 	attrs := []any{
 		"rate_limit_key", key,
 		"limit", limit,
@@ -333,6 +379,9 @@ func LogRateLimit(ctx context.Context, logger *slog.Logger, key string, limit in
 
 // LogCircuitBreaker logs circuit breaker information
 func LogCircuitBreaker(ctx context.Context, logger *slog.Logger, provider, model, state string) {
+	if logger == nil {
+		return
+	}
 	attrs := []any{
 		"provider", provider,
 		"model", model,

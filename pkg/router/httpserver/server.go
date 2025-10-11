@@ -122,8 +122,54 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/protection", s.handleProtection)
 	v1.HandleFunc("/cache", s.handleCache)
 
-	// Apply logging middleware to v1 routes
-	s.router.Handle("/v1/", loggingMiddleware(http.StripPrefix("/v1", v1)))
+	// Apply both observability and logging middleware to v1 routes
+	s.router.Handle("/v1/", loggingMiddleware(s.observabilityMiddlewareHandler(http.StripPrefix("/v1", v1))))
+}
+
+// observabilityMiddlewareHandler adds observability to HTTP requests (Handler version)
+func (s *Server) observabilityMiddlewareHandler(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Generate request ID
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = generateRequestID()
+		}
+
+		// Add request ID to context
+		ctx := observability.WithRequestID(r.Context(), requestID)
+		ctx = observability.WithCaller(ctx, r.Header.Get("X-Caller"))
+
+		// Start span if observability is available
+		if s.observability != nil {
+			var span trace.Span
+			ctx, span = s.observability.GetTracer().StartSpan(ctx, "http.request")
+			defer span.End()
+
+			// Add span attributes
+			span.SetAttributes(
+				attribute.String("http.method", r.Method),
+				attribute.String("http.url", r.URL.String()),
+				attribute.String("http.user_agent", r.UserAgent()),
+				attribute.String("request_id", requestID),
+			)
+		}
+
+		// Create response writer wrapper
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: 200}
+
+		// Call next handler
+		next.ServeHTTP(wrapped, r.WithContext(ctx))
+
+		// Record metrics and logs
+		duration := time.Since(start)
+		if s.observability != nil {
+			s.observability.GetLogger().LogRequest(
+				ctx, r.Method, r.URL.Path, wrapped.statusCode, duration, requestID,
+			)
+		}
+	}
 }
 
 // observabilityMiddleware adds observability to HTTP requests
@@ -359,12 +405,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	requestID := observability.GetRequestIDFromContext(ctx)
 	caller := observability.GetCallerFromContext(ctx)
 
+	// Extract request text from messages
+	requestText := ""
+	if len(req.Messages) > 0 {
+		// Get the last user message as the main request text
+		for i := len(req.Messages) - 1; i >= 0; i-- {
+			if req.Messages[i].Role == "user" {
+				requestText = req.Messages[i].Content
+				break
+			}
+		}
+	}
+
 	// Log the chat request
 	s.logger.InfoContext(ctx, "chat_request_started",
 		"request_id", requestID,
 		"caller", caller,
 		"model", req.Model,
 		"messages_count", len(req.Messages),
+		"request_text", requestText,
 		"temperature", req.Temperature,
 		"max_tokens", req.MaxTokens,
 	)
@@ -413,17 +472,53 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Select model using routing strategy
-	strategy := r.URL.Query().Get("strategy")
-	if strategy == "" {
-		strategy = "tag-based" // Default strategy
-	}
+	// Check if model is explicitly specified in request
+	var selectedModel *registry.ModelConfig
+	var err error
 
-	selectedModel, err := s.modelRouter.SelectModel(ctx, strategy, req.Metadata)
-	if err != nil {
-		s.logger.Error("model selection failed", "error", err, "strategy", strategy, "request_id", requestID)
-		s.writeError(w, "Model selection failed", "MODEL_SELECTION_FAILED", http.StatusInternalServerError)
-		return
+	if req.Model != "" {
+		// Model is explicitly specified, try to find it in registry
+		s.logger.Info("model explicitly specified in request", "model", req.Model, "request_id", requestID)
+
+		for _, model := range s.registry.Models {
+			if model.ID == req.Model {
+				selectedModel = &model
+				s.logger.Info("using explicitly specified model", "model", req.Model, "provider", model.Provider, "request_id", requestID)
+				break
+			}
+		}
+
+		if selectedModel == nil {
+			// Model not found in registry, fallback to strategy
+			s.logger.Warn("explicitly specified model not found in registry, falling back to strategy", "model", req.Model, "request_id", requestID)
+
+			strategy := r.URL.Query().Get("strategy")
+			if strategy == "" {
+				strategy = "tag-based" // Default strategy
+			}
+
+			selectedModel, err = s.modelRouter.SelectModel(ctx, strategy, req.Metadata)
+			if err != nil {
+				s.logger.Error("model selection failed after fallback", "error", err, "strategy", strategy, "request_id", requestID)
+				s.writeError(w, "Model selection failed", "MODEL_SELECTION_FAILED", http.StatusInternalServerError)
+				return
+			}
+		}
+	} else {
+		// No model specified, use routing strategy
+		strategy := r.URL.Query().Get("strategy")
+		if strategy == "" {
+			strategy = "tag-based" // Default strategy
+		}
+
+		s.logger.Info("no model specified, using strategy", "strategy", strategy, "request_id", requestID)
+
+		selectedModel, err = s.modelRouter.SelectModel(ctx, strategy, req.Metadata)
+		if err != nil {
+			s.logger.Error("model selection failed", "error", err, "strategy", strategy, "request_id", requestID)
+			s.writeError(w, "Model selection failed", "MODEL_SELECTION_FAILED", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Start LLM request span
@@ -433,11 +528,24 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		defer span.End()
 	}
 
-	s.logger.Info("model selected", "model", selectedModel.ID, "strategy", strategy, "domain", req.Metadata["task_domain"], "request_id", requestID)
+	// Log the model selection result
+	if req.Model != "" && selectedModel.ID == req.Model {
+		s.logger.Info("model selected from explicit request", "model", selectedModel.ID, "provider", selectedModel.Provider, "domain", req.Metadata["task_domain"], "request_id", requestID)
+	} else {
+		strategy := r.URL.Query().Get("strategy")
+		if strategy == "" {
+			strategy = "tag-based"
+		}
+		s.logger.Info("model selected by strategy", "model", selectedModel.ID, "provider", selectedModel.Provider, "strategy", strategy, "domain", req.Metadata["task_domain"], "request_id", requestID)
+	}
 
 	// For now, return a mock response with selected model info
+	selectionMethod := "explicit"
+	if req.Model == "" || selectedModel.ID != req.Model {
+		selectionMethod = "strategy"
+	}
 	response := core.ChatResponse{
-		Text: fmt.Sprintf("Hello! This is a mock response from the LLM router using model %s (strategy: %s).", selectedModel.ID, strategy),
+		Text: fmt.Sprintf("Hello! This is a mock response from the LLM router using model %s (selection: %s).", selectedModel.ID, selectionMethod),
 		Usage: core.Usage{
 			PromptTokens:     10,
 			CompletionTokens: 15,
@@ -503,6 +611,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		"caller", caller,
 		"model", selectedModel.ID,
 		"provider", selectedModel.Provider,
+		"response_text", response.Text,
 		"input_tokens", response.Usage.PromptTokens,
 		"output_tokens", response.Usage.CompletionTokens,
 		"total_tokens", response.Usage.TotalTokens,
