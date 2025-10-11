@@ -66,11 +66,18 @@ func (t *Telemetry) LogTaskEnd(ctx context.Context, task core.Task, result core.
 			"score", result.Score,
 		)
 	} else {
-		t.metrics.TasksFailed.WithLabelValues("worker", task.Domain, "timeout").Inc()
+		// Extract failure reason from result logs
+		failureReason := "unknown"
+		if result.Logs != "" {
+			failureReason = result.Logs
+		}
+
+		t.metrics.TasksFailed.WithLabelValues("worker", task.Domain, failureReason).Inc()
 		t.logger.WarnContext(ctx, "task_failed",
 			"task_id", task.ID,
 			"duration_ms", duration.Milliseconds(),
 			"iterations", iterations,
+			"reason", failureReason,
 		)
 	}
 }

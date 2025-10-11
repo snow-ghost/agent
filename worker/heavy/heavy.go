@@ -100,6 +100,7 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 	slog.InfoContext(ctx, "starting evolution", "deadline", deadline, "task_id", task.ID)
 
 	iterations := 0
+	timeoutReached := false
 	for time.Now().Before(deadline) {
 		iterations++
 		candidates := append([]core.Hypothesis{hypothesis}, h.mut.Mutate(best)...)
@@ -122,6 +123,7 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 			}
 		}
 	}
+	timeoutReached = true
 
 	// If we found a good hypothesis, try to execute it and save it
 	if bestScore > 0 {
@@ -131,8 +133,39 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 			h.LogTaskEnd(ctx, task, res, time.Since(start), iterations)
 			return res, nil
 		}
+		// Best hypothesis failed to execute
+		failureReason := "best_hypothesis_execution_failed"
+		if err != nil {
+			failureReason = "best_hypothesis_execution_error"
+		}
+		h.LogTaskEnd(ctx, task, core.Result{
+			Success: false,
+			Logs:    failureReason + ": " + err.Error(),
+		}, time.Since(start), iterations)
+		return core.Result{
+			Success: false,
+			Logs:    failureReason,
+		}, nil
 	}
 
-	h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), iterations)
-	return core.Result{Success: false}, nil
+	// Determine failure reason
+	var failureReason string
+	if timeoutReached {
+		if bestScore > 0 {
+			failureReason = "timeout_with_partial_solution"
+		} else {
+			failureReason = "timeout_no_solution"
+		}
+	} else {
+		failureReason = "no_suitable_hypothesis_found"
+	}
+
+	h.LogTaskEnd(ctx, task, core.Result{
+		Success: false,
+		Logs:    failureReason,
+	}, time.Since(start), iterations)
+	return core.Result{
+		Success: false,
+		Logs:    failureReason,
+	}, nil
 }
