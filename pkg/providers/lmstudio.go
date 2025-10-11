@@ -20,7 +20,12 @@ type LMStudioProvider struct {
 // NewLMStudioProvider creates a new LM Studio provider
 func NewLMStudioProvider(baseURL, apiKey string) *LMStudioProvider {
 	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = baseURL
+	// Ensure baseURL ends with /v1 for LM Studio compatibility
+	if baseURL[len(baseURL)-1] == '/' {
+		config.BaseURL = baseURL + "v1"
+	} else {
+		config.BaseURL = baseURL + "/v1"
+	}
 
 	client := openai.NewClientWithConfig(config)
 
@@ -85,6 +90,10 @@ func (p *LMStudioProvider) Chat(ctx context.Context, mc registry.ModelConfig, re
 	response, err := p.client.CreateChatCompletion(ctx, request)
 	if err != nil {
 		return core.ChatResponse{}, fmt.Errorf("lmstudio chat completion failed: %w", err)
+	}
+
+	if len(response.Choices) == 0 {
+		return core.ChatResponse{}, fmt.Errorf("lmstudio chat completion returned no choices")
 	}
 
 	// Convert response
@@ -156,7 +165,13 @@ func CreateLMStudioProviderFromConfig(mc registry.ModelConfig, registry *registr
 	}
 
 	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = mc.BaseURL
+	// Ensure baseURL ends with /v1 for LM Studio compatibility
+	baseURL := mc.BaseURL
+	if baseURL[len(baseURL)-1] == '/' {
+		config.BaseURL = baseURL + "v1"
+	} else {
+		config.BaseURL = baseURL + "/v1"
+	}
 
 	client := openai.NewClientWithConfig(config)
 

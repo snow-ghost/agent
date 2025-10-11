@@ -245,10 +245,13 @@ func generateRequestID() string {
 func (s *Server) Start() error {
 	s.logger.Info("starting HTTP server", "port", s.port)
 
-	// Create HTTP server
+	// Create HTTP server with extended timeouts for LLM requests
 	s.httpServer = &http.Server{
-		Addr:    ":" + s.port,
-		Handler: s.router,
+		Addr:         ":" + s.port,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Minute, // 10 minutes for reading request
+		WriteTimeout: 10 * time.Minute, // 10 minutes for writing response
+		IdleTimeout:  15 * time.Minute, // 15 minutes for idle connections
 	}
 
 	return s.httpServer.ListenAndServe()
@@ -258,10 +261,13 @@ func (s *Server) Start() error {
 func (s *Server) StartWithGracefulShutdown() error {
 	s.logger.Info("starting HTTP server with graceful shutdown", "port", s.port)
 
-	// Create HTTP server
+	// Create HTTP server with extended timeouts for LLM requests
 	s.httpServer = &http.Server{
-		Addr:    ":" + s.port,
-		Handler: s.router,
+		Addr:         ":" + s.port,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Minute, // 10 minutes for reading request
+		WriteTimeout: 10 * time.Minute, // 10 minutes for writing response
+		IdleTimeout:  15 * time.Minute, // 15 minutes for idle connections
 	}
 
 	// Start server in goroutine
@@ -554,11 +560,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Make real LLM request
+	// Make real LLM request with extended timeout
 	s.logger.Info("making real LLM request", "model", selectedModel.ID, "provider", selectedModel.Provider, "request_id", requestID)
 
+	// Create context with 10 minute timeout for LLM requests
+	llmCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
 	startTime := time.Now()
-	llmResponse, err := provider.Chat(ctx, *selectedModel, req)
+	llmResponse, err := provider.Chat(llmCtx, *selectedModel, req)
 	duration := time.Since(startTime)
 
 	if err != nil {

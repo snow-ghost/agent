@@ -66,7 +66,7 @@ func (t *Telemetry) LogTaskEnd(ctx context.Context, task core.Task, result core.
 			"score", result.Score,
 		)
 	} else {
-		t.metrics.TasksFailed.WithLabelValues("worker", task.Domain).Inc()
+		t.metrics.TasksFailed.WithLabelValues("worker", task.Domain, "timeout").Inc()
 		t.logger.WarnContext(ctx, "task_failed",
 			"task_id", task.ID,
 			"duration_ms", duration.Milliseconds(),
