@@ -139,7 +139,7 @@ func TestModelRouter(t *testing.T) {
 
 	// Test available strategies
 	strategies := router.GetAvailableStrategies()
-	expectedStrategies := []string{"round-robin", "weighted", "tag-based"}
+	expectedStrategies := []string{"round-robin", "weighted", "tag-based", "cost-aware", "latency-based", "load-balancing", "ab-testing"}
 
 	if len(strategies) != len(expectedStrategies) {
 		t.Errorf("Expected %d strategies, got %d", len(expectedStrategies), len(strategies))

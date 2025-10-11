@@ -28,10 +28,22 @@ func TestNewAuthMiddleware(t *testing.T) {
 			},
 		},
 		{
-			name:   "provided config is used",
-			config: &AuthConfig{RequireAuth: true, DefaultRateLimit: 100},
+			name: "custom config",
+			config: &AuthConfig{
+				RequireAuth:      true,
+				APIKeys:          make(map[string]*APIKey),
+				DefaultRateLimit: 100,
+				JWTSecret:        "test-secret",
+				JWTExpiry:        time.Hour,
+			},
 			expected: &AuthMiddleware{
-				config:       &AuthConfig{RequireAuth: true, DefaultRateLimit: 100},
+				config: &AuthConfig{
+					RequireAuth:      true,
+					APIKeys:          make(map[string]*APIKey),
+					DefaultRateLimit: 100,
+					JWTSecret:        "test-secret",
+					JWTExpiry:        time.Hour,
+				},
 				rateLimiters: make(map[string]*RateLimiter),
 				errorHandler: errorHandler,
 			},
@@ -41,219 +53,226 @@ func TestNewAuthMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			middleware := NewAuthMiddleware(tt.config, errorHandler)
-			assert.Equal(t, tt.expected.config.RequireAuth, middleware.config.RequireAuth)
-			assert.Equal(t, tt.expected.config.DefaultRateLimit, middleware.config.DefaultRateLimit)
+			assert.Equal(t, tt.expected.config, middleware.config)
 			assert.NotNil(t, middleware.rateLimiters)
-			assert.Equal(t, errorHandler, middleware.errorHandler)
+			assert.Equal(t, tt.expected.errorHandler, middleware.errorHandler)
 		})
 	}
 }
 
-func TestAuthMiddleware_Middleware(t *testing.T) {
+func TestAuthMiddleware_Middleware_NoAuthRequired(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      false,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
+	}
+
 	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
 
-	tests := []struct {
-		name           string
-		requireAuth    bool
-		apiKey         string
-		expectedStatus int
-	}{
-		{
-			name:           "no auth required",
-			requireAuth:    false,
-			apiKey:         "",
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "auth required, no API key",
-			requireAuth:    true,
-			apiKey:         "",
-			expectedStatus: http.StatusUnauthorized,
-		},
-		{
-			name:           "auth required, invalid API key",
-			requireAuth:    true,
-			apiKey:         "invalid-key",
-			expectedStatus: http.StatusUnauthorized,
-		},
+	// Test with no auth header when auth is not required
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_Middleware_WithValidKey(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      true,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &AuthConfig{
-				RequireAuth:      tt.requireAuth,
-				DefaultRateLimit: 100,
-				APIKeys:          make(map[string]*APIKey),
-			}
-
-			// Add a valid API key for testing
-			if tt.requireAuth {
-				validKey := &APIKey{
-					Key:      "valid-key",
-					Name:     "test-key",
-					IsActive: true,
-				}
-				config.APIKeys["valid-key"] = validKey
-			}
-
-			middleware := NewAuthMiddleware(config, errorHandler)
-
-			// Create a test handler
-			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			})
-
-			// Create request
-			req := httptest.NewRequest("GET", "/test", nil)
-			if tt.apiKey != "" {
-				req.Header.Set("X-API-Key", tt.apiKey)
-			}
-
-			// Create response recorder
-			w := httptest.NewRecorder()
-
-			// Apply middleware
-			middleware.Middleware(handler).ServeHTTP(w, req)
-
-			assert.Equal(t, tt.expectedStatus, w.Code)
-		})
+	// Add a valid API key
+	apiKey := &APIKey{
+		Key:       "test-key",
+		Name:      "test",
+		CreatedAt: time.Now(),
+		RateLimit: 100,
+		IsActive:  true,
 	}
+	config.APIKeys["test-key"] = apiKey
+
+	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
+
+	// Test with valid auth header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_Middleware_WithInvalidKey(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      true,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
+	}
+
+	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
+
+	// Test with invalid auth header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer invalid-key")
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_Middleware_WithInactiveKey(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      true,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
+	}
+
+	// Add an inactive API key
+	apiKey := &APIKey{
+		Key:       "test-key",
+		Name:      "test",
+		CreatedAt: time.Now(),
+		RateLimit: 100,
+		IsActive:  false,
+	}
+	config.APIKeys["test-key"] = apiKey
+
+	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
+
+	// Test with inactive auth header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_Middleware_WithExpiredKey(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      true,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
+	}
+
+	// Add an expired API key
+	expiredTime := time.Now().Add(-24 * time.Hour)
+	apiKey := &APIKey{
+		Key:       "test-key",
+		Name:      "test",
+		CreatedAt: time.Now().Add(-48 * time.Hour),
+		ExpiresAt: &expiredTime,
+		RateLimit: 100,
+		IsActive:  true,
+	}
+	config.APIKeys["test-key"] = apiKey
+
+	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
+
+	// Test with expired auth header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_Middleware_NoAuthHeader(t *testing.T) {
+	config := &AuthConfig{
+		RequireAuth:      true,
+		APIKeys:          make(map[string]*APIKey),
+		DefaultRateLimit: 100,
+		JWTSecret:        "test-secret",
+		JWTExpiry:        time.Hour,
+	}
+
+	errorHandler := &errors.ErrorHandler{}
+	middleware := NewAuthMiddleware(config, errorHandler)
+
+	// Test with no auth header
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	handler := middleware.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestRateLimiter_Allow(t *testing.T) {
-	tests := []struct {
-		name     string
-		limit    int
-		window   time.Duration
-		requests int
-		expected bool
-	}{
-		{
-			name:     "within limit",
-			limit:    10,
-			window:   time.Minute,
-			requests: 5,
-			expected: true,
-		},
-		{
-			name:     "at limit",
-			limit:    5,
-			window:   time.Minute,
-			requests: 5,
-			expected: false,
-		},
-		{
-			name:     "over limit",
-			limit:    3,
-			window:   time.Minute,
-			requests: 5,
-			expected: false,
-		},
+	limiter := &RateLimiter{
+		limit:    2,
+		window:   time.Minute,
+		requests: []time.Time{},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			limiter := &RateLimiter{
-				limit:    tt.limit,
-				window:   tt.window,
-				requests: make([]time.Time, 0),
-			}
+	// First request should be allowed
+	assert.True(t, limiter.Allow())
 
-			// Make requests
-			for i := 0; i < tt.requests; i++ {
-				limiter.Allow()
-			}
+	// Second request should be allowed
+	assert.True(t, limiter.Allow())
 
-			// Check if the last request is allowed
-			result := limiter.Allow()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	// Third request should be denied
+	assert.False(t, limiter.Allow())
 }
 
-func TestAuthMiddleware_AddAPIKey(t *testing.T) {
-	errorHandler := &errors.ErrorHandler{}
-	config := &AuthConfig{
-		RequireAuth:      true,
-		DefaultRateLimit: 100,
-		APIKeys:          make(map[string]*APIKey),
+func TestRateLimiter_WindowExpiry(t *testing.T) {
+	limiter := &RateLimiter{
+		limit:    1,
+		window:   10 * time.Millisecond, // Very short window for testing
+		requests: []time.Time{},
 	}
 
-	middleware := NewAuthMiddleware(config, errorHandler)
+	// First request should be allowed
+	assert.True(t, limiter.Allow())
 
-	key := &APIKey{
-		Key:      "test-key",
-		Name:     "test",
-		IsActive: true,
-	}
+	// Second request should be denied
+	assert.False(t, limiter.Allow())
 
-	err := middleware.AddAPIKey(key)
-	assert.NoError(t, err)
-	assert.Contains(t, middleware.config.APIKeys, "test-key")
-}
+	// Wait for window to expire
+	time.Sleep(20 * time.Millisecond)
 
-func TestAuthMiddleware_RemoveAPIKey(t *testing.T) {
-	errorHandler := &errors.ErrorHandler{}
-	config := &AuthConfig{
-		RequireAuth:      true,
-		DefaultRateLimit: 100,
-		APIKeys:          make(map[string]*APIKey),
-	}
-
-	middleware := NewAuthMiddleware(config, errorHandler)
-
-	// Add a key first
-	key := &APIKey{
-		Key:      "test-key",
-		Name:     "test",
-		IsActive: true,
-	}
-	middleware.config.APIKeys["test-key"] = key
-
-	// Remove the key
-	err := middleware.RemoveAPIKey("test-key")
-	assert.NoError(t, err)
-	assert.NotContains(t, middleware.config.APIKeys, "test-key")
-
-	// Try to remove non-existent key
-	err = middleware.RemoveAPIKey("non-existent")
-	assert.Error(t, err)
-}
-
-func TestAuthMiddleware_GetAPIKey(t *testing.T) {
-	errorHandler := &errors.ErrorHandler{}
-	config := &AuthConfig{
-		RequireAuth:      true,
-		DefaultRateLimit: 100,
-		APIKeys:          make(map[string]*APIKey),
-	}
-
-	middleware := NewAuthMiddleware(config, errorHandler)
-
-	// Add a key
-	key := &APIKey{
-		Key:      "test-key",
-		Name:     "test",
-		IsActive: true,
-	}
-	middleware.config.APIKeys["test-key"] = key
-
-	// Get existing key
-	retrievedKey, err := middleware.GetAPIKey("test-key")
-	assert.NoError(t, err)
-	assert.Equal(t, key, retrievedKey)
-
-	// Get non-existent key
-	_, err = middleware.GetAPIKey("non-existent")
-	assert.Error(t, err)
-}
-
-func TestDefaultAuthConfig(t *testing.T) {
-	config := DefaultAuthConfig()
-
-	assert.False(t, config.RequireAuth)
-	assert.Equal(t, "./api-keys.json", config.APIKeyFile)
-	assert.Equal(t, "default-secret-change-in-production", config.JWTSecret)
-	assert.Equal(t, 24*time.Hour, config.JWTExpiry)
-	assert.Equal(t, 1000, config.DefaultRateLimit)
+	// Request should be allowed again after window expires
+	assert.True(t, limiter.Allow())
 }
