@@ -36,6 +36,12 @@ type Server struct {
 	cacheManager      *cache.CacheManager
 	observability     *observability.Manager
 	accounting        *accounting.Manager
+	providerFactory   ProviderFactory
+}
+
+// ProviderFactory interface for creating providers
+type ProviderFactory interface {
+	CreateProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (providers.Provider, error)
 }
 
 // NewServer creates a new HTTP server
@@ -95,6 +101,7 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		cacheManager:      cacheManager,
 		observability:     obsManager,
 		accounting:        accountingManager,
+		providerFactory:   providers.NewProviderFactory(),
 	}
 	s.setupRoutes()
 	return s
@@ -539,22 +546,38 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("model selected by strategy", "model", selectedModel.ID, "provider", selectedModel.Provider, "strategy", strategy, "domain", req.Metadata["task_domain"], "request_id", requestID)
 	}
 
-	// For now, return a mock response with selected model info
-	selectionMethod := "explicit"
-	if req.Model == "" || selectedModel.ID != req.Model {
-		selectionMethod = "strategy"
+	// Create provider for the selected model
+	provider, err := s.providerFactory.CreateProviderFromConfig(*selectedModel, s.registry)
+	if err != nil {
+		s.logger.Error("failed to create provider", "error", err, "provider", selectedModel.Provider, "request_id", requestID)
+		s.writeError(w, "Provider creation failed", "PROVIDER_CREATION_FAILED", http.StatusInternalServerError)
+		return
 	}
-	response := core.ChatResponse{
-		Text: fmt.Sprintf("Hello! This is a mock response from the LLM router using model %s (selection: %s).", selectedModel.ID, selectionMethod),
-		Usage: core.Usage{
-			PromptTokens:     10,
-			CompletionTokens: 15,
-			TotalTokens:      25,
-		},
-		Model:        selectedModel.ID,
-		Provider:     selectedModel.Provider,
-		FinishReason: "stop",
+
+	// Make real LLM request
+	s.logger.Info("making real LLM request", "model", selectedModel.ID, "provider", selectedModel.Provider, "request_id", requestID)
+
+	startTime := time.Now()
+	llmResponse, err := provider.Chat(ctx, *selectedModel, req)
+	duration := time.Since(startTime)
+
+	if err != nil {
+		s.logger.Error("LLM request failed", "error", err, "model", selectedModel.ID, "provider", selectedModel.Provider, "request_id", requestID)
+		s.writeError(w, "LLM request failed", "LLM_REQUEST_FAILED", http.StatusInternalServerError)
+		return
 	}
+
+	// Type assert the response
+	response, ok := llmResponse.(core.ChatResponse)
+	if !ok {
+		s.logger.Error("invalid response type from provider", "provider", selectedModel.Provider, "request_id", requestID)
+		s.writeError(w, "Invalid response from provider", "INVALID_RESPONSE", http.StatusInternalServerError)
+		return
+	}
+
+	// Set model and provider info
+	response.Model = selectedModel.ID
+	response.Provider = selectedModel.Provider
 
 	// Calculate cost
 	costResult, err := s.costCalculator.CalcCostForModel(selectedModel.ID, response.Usage)
@@ -567,13 +590,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if s.observability != nil {
 		s.observability.RecordRequestMetrics(
 			selectedModel.Provider, selectedModel.ID, "success",
-			time.Since(time.Now()), // Mock duration
+			duration,
 			response.Usage.PromptTokens, response.Usage.CompletionTokens,
 			costResult.TotalCost, costResult.Currency,
 		)
 		s.observability.LogRequestCompletion(
 			ctx, selectedModel.Provider, selectedModel.ID, "success",
-			time.Since(time.Now()), response.Usage.TotalTokens, costResult.TotalCost, requestID,
+			duration, response.Usage.TotalTokens, costResult.TotalCost, requestID,
 		)
 	}
 

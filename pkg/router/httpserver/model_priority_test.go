@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
+	"github.com/snow-ghost/agent/pkg/providers"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/snow-ghost/agent/pkg/router/core"
 	"github.com/snow-ghost/agent/pkg/routing"
@@ -39,13 +41,14 @@ func TestModelPriorityInRequest(t *testing.T) {
 	// Create protection manager
 	protectionManager := limiter.NewProtectionManager(testRegistry)
 
-	// Create server with test registry
+	// Create server with test registry and mock provider factory
 	server := &Server{
 		logger:            logger,
 		registry:          testRegistry,
 		modelRouter:       modelRouter,
 		costCalculator:    costCalculator,
 		protectionManager: protectionManager,
+		providerFactory:   NewMockProviderFactory(),
 	}
 
 	tests := []struct {
@@ -176,6 +179,7 @@ func TestModelSelectionWithStrategy(t *testing.T) {
 		modelRouter:       modelRouter,
 		costCalculator:    costCalculator,
 		protectionManager: protectionManager,
+		providerFactory:   NewMockProviderFactory(),
 	}
 
 	strategies := []string{"round-robin", "weighted", "cost-aware", "tag-based"}
@@ -248,6 +252,7 @@ func TestModelValidation(t *testing.T) {
 		modelRouter:       modelRouter,
 		costCalculator:    costCalculator,
 		protectionManager: protectionManager,
+		providerFactory:   NewMockProviderFactory(),
 	}
 
 	t.Run("valid_explicit_model", func(t *testing.T) {
@@ -414,6 +419,7 @@ func TestModelPriorityDesiredBehavior(t *testing.T) {
 		modelRouter:       modelRouter,
 		costCalculator:    costCalculator,
 		protectionManager: protectionManager,
+		providerFactory:   NewMockProviderFactory(),
 	}
 
 	t.Run("explicit_model_should_override_strategy", func(t *testing.T) {
@@ -479,4 +485,78 @@ func TestModelPriorityDesiredBehavior(t *testing.T) {
 		availableModels := getModelIDs(testRegistry)
 		assert.Contains(t, availableModels, response.Model, "Should select a model via strategy")
 	})
+}
+
+// MockProvider implements providers.Provider for testing
+type MockProvider struct {
+	*providers.BaseProvider
+}
+
+// NewMockProvider creates a new mock provider
+func NewMockProvider(registry *registry.Registry) *MockProvider {
+	return &MockProvider{
+		BaseProvider: providers.NewBaseProvider(registry),
+	}
+}
+
+// Chat performs mock chat completion
+func (m *MockProvider) Chat(ctx context.Context, mc registry.ModelConfig, req interface{}) (interface{}, error) {
+	// Type assert req to core.ChatRequest
+	_, ok := req.(core.ChatRequest)
+	if !ok {
+		return core.ChatResponse{}, fmt.Errorf("invalid request type, expected core.ChatRequest")
+	}
+
+	// Create a mock response
+	response := core.ChatResponse{
+		Text: fmt.Sprintf("Mock response from %s (provider: %s)", mc.ID, mc.Provider),
+		Usage: core.Usage{
+			PromptTokens:     10,
+			CompletionTokens: 15,
+			TotalTokens:      25,
+		},
+		Model:        mc.ID,
+		Provider:     mc.Provider,
+		FinishReason: "stop",
+	}
+
+	return response, nil
+}
+
+// Embed generates mock embeddings
+func (m *MockProvider) Embed(ctx context.Context, mc registry.ModelConfig, input []string) ([][]float32, interface{}, error) {
+	// Create mock embeddings
+	embeddings := make([][]float32, len(input))
+	for i := range input {
+		embeddings[i] = make([]float32, 1536) // Standard embedding size
+		for j := range embeddings[i] {
+			embeddings[i][j] = float32(i + j) // Simple mock values
+		}
+	}
+
+	usage := core.Usage{
+		PromptTokens:     len(input) * 10,
+		CompletionTokens: 0,
+		TotalTokens:      len(input) * 10,
+	}
+
+	return embeddings, usage, nil
+}
+
+// MockProviderFactory creates mock providers for testing
+type MockProviderFactory struct{}
+
+// NewMockProviderFactory creates a new mock provider factory
+func NewMockProviderFactory() *MockProviderFactory {
+	return &MockProviderFactory{}
+}
+
+// CreateProvider creates a mock provider
+func (f *MockProviderFactory) CreateProvider(providerType string) (providers.Provider, error) {
+	return &MockProvider{}, nil
+}
+
+// CreateProviderFromConfig creates a mock provider from model config
+func (f *MockProviderFactory) CreateProviderFromConfig(mc registry.ModelConfig, registry *registry.Registry) (providers.Provider, error) {
+	return NewMockProvider(registry), nil
 }
