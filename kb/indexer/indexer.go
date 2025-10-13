@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/snow-ghost/agent/artifact"
 	"github.com/snow-ghost/agent/embeddings"
 	"github.com/snow-ghost/agent/vectordb"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // Indexer handles indexing of artifacts for vector search
@@ -66,6 +68,9 @@ func (i *Indexer) IndexArtifact(ctx context.Context, manifest *artifact.Manifest
 	manifest.Embedding = embedding
 	manifest.EmbeddingModel = i.getEmbeddingModelName()
 
+	// Record metrics
+	workermetrics.IncKBSaveArtifact(ctx)
+
 	return nil
 }
 
@@ -81,6 +86,8 @@ func (i *Indexer) IndexArtifacts(ctx context.Context, manifests []*artifact.Mani
 
 // SearchArtifacts searches for artifacts by text query
 func (i *Indexer) SearchArtifacts(ctx context.Context, query string, topK int) ([]*artifact.Manifest, error) {
+	start := time.Now()
+
 	// Create embedding for query
 	queryEmbedding, err := i.embedder.EmbedText(ctx, query)
 	if err != nil {
@@ -99,6 +106,12 @@ func (i *Indexer) SearchArtifacts(ctx context.Context, query string, topK int) (
 		manifest := i.hitToManifest(hit)
 		manifests = append(manifests, manifest)
 	}
+
+	// Record RAG search metrics
+	backend := i.getVectorStoreBackend()
+	duration := time.Since(start).Seconds()
+	candidatesFound := int64(len(manifests))
+	workermetrics.ObserveRAGSearch(ctx, backend, duration, candidatesFound)
 
 	return manifests, nil
 }
@@ -132,6 +145,18 @@ func (i *Indexer) generateTextForEmbedding(manifest *artifact.Manifest) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// getVectorStoreBackend returns the backend type for metrics
+func (i *Indexer) getVectorStoreBackend() string {
+	switch i.vectorStore.(type) {
+	case *vectordb.MemoryVectorStore:
+		return "memory"
+	case *vectordb.QdrantVectorStore:
+		return "qdrant"
+	default:
+		return "unknown"
+	}
 }
 
 // hitToManifest converts a vector search hit to a manifest

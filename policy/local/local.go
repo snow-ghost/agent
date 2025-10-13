@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // Guard is a simple implementation of core.PolicyGuard
@@ -50,10 +51,15 @@ func (g *Guard) Wrap(ctx context.Context, b core.Budget, run func(ctx context.Co
 	case <-execCtx.Done():
 		// return context error to signal timeout/cancel
 		if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
+			workermetrics.IncPolicyDenied(ctx, "timeout")
 			return context.DeadlineExceeded
 		}
+		workermetrics.IncPolicyDenied(ctx, "cancel")
 		return execCtx.Err()
 	case err := <-done:
+		if err != nil {
+			workermetrics.IncPolicyDenied(ctx, "error")
+		}
 		return err
 	}
 }

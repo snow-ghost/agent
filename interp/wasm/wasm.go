@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -38,6 +39,12 @@ func NewInterpreter() *Interpreter {
 
 // Execute runs a WASM module with the given hypothesis and task
 func (i *Interpreter) Execute(ctx context.Context, h core.Hypothesis, task core.Task) (core.Result, error) {
+	execStart := time.Now()
+	resultLabel := "ok"
+	defer func() {
+		dur := time.Since(execStart).Seconds()
+		workermetrics.ObserveSandbox(ctx, resultLabel, dur)
+	}()
 	// Create context with timeout from task budget
 	timeout := time.Duration(task.Budget.CPUMillis) * time.Millisecond
 	if timeout == 0 {
@@ -86,6 +93,7 @@ func (i *Interpreter) Execute(ctx context.Context, h core.Hypothesis, task core.
 	// Call solve function
 	results, err := solveFunc.Call(execCtx, uint64(inputPtr), uint64(inputSize))
 	if err != nil {
+		resultLabel = "err"
 		return core.Result{}, fmt.Errorf("failed to call solve function: %w", err)
 	}
 
@@ -99,6 +107,7 @@ func (i *Interpreter) Execute(ctx context.Context, h core.Hypothesis, task core.
 	// Read output from memory
 	outputBytes, err := i.readString(instance, execCtx, outputPtr, outputSize)
 	if err != nil {
+		resultLabel = "err"
 		return core.Result{}, fmt.Errorf("failed to read output: %w", err)
 	}
 

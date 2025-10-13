@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
+
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // QdrantVectorStore implements a vector store using Qdrant
@@ -55,7 +58,11 @@ func (q *QdrantVectorStore) Upsert(ctx context.Context, id string, vec []float32
 
 // Search finds the most similar vectors
 func (q *QdrantVectorStore) Search(ctx context.Context, vec []float32, topK int) ([]Hit, error) {
+	start := time.Now()
 	// TODO: Implement search with Qdrant v2
+	// For now, return empty results but record metrics
+	duration := time.Since(start).Seconds()
+	workermetrics.ObserveRAGSearch(ctx, "qdrant", duration, 0)
 	return nil, fmt.Errorf("Qdrant implementation not yet available")
 }
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // GenerateSortCasesFixed returns a fixed set of sorting property test cases.
@@ -69,9 +70,16 @@ func (r *Runner) Run(ctx context.Context, h core.Hypothesis, cases []core.TestCa
 
 		if passed {
 			metrics["cases_passed"] += 1
+			workermetrics.ObserveTest(ctx, "pass", float64(time.Since(start).Seconds()))
 		} else {
 			metrics["cases_failed"] += 1
 			allPassed = false
+			// If there was an execution error, mark as error, else fail
+			if err != nil {
+				workermetrics.ObserveTest(ctx, "error", float64(time.Since(start).Seconds()))
+			} else {
+				workermetrics.ObserveTest(ctx, "fail", float64(time.Since(start).Seconds()))
+			}
 		}
 	}
 

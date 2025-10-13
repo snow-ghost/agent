@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/snow-ghost/agent/artifact"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // KnowledgeBaseFS implements a file-system based knowledge base
@@ -53,7 +55,7 @@ func (kb *KnowledgeBaseFS) LoadArtifacts() error {
 	}
 
 	// Walk through artifact directories
-	return filepath.Walk(kb.artifactsDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(kb.artifactsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -67,6 +69,11 @@ func (kb *KnowledgeBaseFS) LoadArtifacts() error {
 
 		return nil
 	})
+
+	// Update metrics with loaded artifacts count
+	workermetrics.SetKBArtifactsLoaded(context.Background(), int64(len(kb.cache)))
+
+	return err
 }
 
 // loadManifest loads a single manifest file
@@ -217,6 +224,10 @@ func (kb *KnowledgeBaseFS) SaveArtifact(manifest *artifact.Manifest, code []byte
 	for _, tag := range manifest.Tags {
 		kb.tagIndex[tag] = append(kb.tagIndex[tag], manifest)
 	}
+
+	// Update metrics
+	workermetrics.IncKBSaveArtifact(context.Background())
+	workermetrics.SetKBArtifactsLoaded(context.Background(), int64(len(kb.cache)))
 
 	return nil
 }

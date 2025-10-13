@@ -1,10 +1,12 @@
 package mutate
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // SimpleMutator produces primitive mutations of hypotheses.
@@ -42,6 +44,7 @@ func (m *SimpleMutator) Mutate(base core.Hypothesis) []core.Hypothesis {
 		"mut": "keep",
 		"ts":  fmt.Sprintf("%d", time.Now().UnixNano()),
 	}))
+	workermetrics.IncMutation(context.Background(), "point")
 
 	switch base.Lang {
 	case "wasm":
@@ -52,12 +55,14 @@ func (m *SimpleMutator) Mutate(base core.Hypothesis) []core.Hypothesis {
 			clone("limit:low", map[string]string{"cpu_hint": "low", "mem_hint": "low"}),
 			clone("limit:high", map[string]string{"cpu_hint": "high", "mem_hint": "high"}),
 		)
+		workermetrics.IncMutation(context.Background(), "toggle")
 	case "dsl", "ir":
 		// Mock operator substitutions
 		candidates = append(candidates,
 			clone("op:swap", map[string]string{"op_subst": "swap"}),
 			clone("op:branch", map[string]string{"op_subst": "branch"}),
 		)
+		workermetrics.IncMutation(context.Background(), "crossover")
 	default:
 		// Unknown language: keep only the base variant
 	}

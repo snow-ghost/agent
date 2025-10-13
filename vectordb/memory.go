@@ -6,6 +6,9 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
+
+	workermetrics "github.com/snow-ghost/agent/worker/metrics"
 )
 
 // MemoryVectorStore implements an in-memory vector store using cosine similarity
@@ -56,6 +59,7 @@ func (m *MemoryVectorStore) Upsert(ctx context.Context, id string, vec []float32
 
 // Search finds the most similar vectors using cosine similarity
 func (m *MemoryVectorStore) Search(ctx context.Context, vec []float32, topK int) ([]Hit, error) {
+	start := time.Now()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -98,6 +102,11 @@ func (m *MemoryVectorStore) Search(ctx context.Context, vec []float32, topK int)
 	if topK > 0 && topK < len(hits) {
 		hits = hits[:topK]
 	}
+
+	// Record RAG search metrics
+	duration := time.Since(start).Seconds()
+	candidatesFound := int64(len(hits))
+	workermetrics.ObserveRAGSearch(ctx, "memory", duration, candidatesFound)
 
 	return hits, nil
 }
