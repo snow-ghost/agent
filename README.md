@@ -41,7 +41,7 @@ go build -o worker-bin ./cmd/worker
 ./worker-bin
 
 # Or with custom configuration
-WORKER_PORT=8080 LLM_MODE=mock ./worker-bin
+WORKER_PORT=9002 LLM_MODE=mock ./worker-bin
 
 # Start with artifact-based knowledge base
 ARTIFACTS_DIR=./artifacts ./worker-bin
@@ -50,7 +50,7 @@ ARTIFACTS_DIR=./artifacts ./worker-bin
 ARTIFACTS_DIR=./artifacts EMBEDDINGS_MODE=mock VECTOR_BACKEND=memory ./worker-bin
 ```
 
-The worker will start on port 8080 (or the port specified by `WORKER_PORT`) and provide:
+The worker will start on port 9002 (or the port specified by `WORKER_PORT`) and provide:
 - `/solve` - POST endpoint for submitting tasks
 - `/health` - Health check endpoint
 - `/metrics` - Prometheus-compatible metrics
@@ -61,7 +61,7 @@ The agent can be configured using environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKER_PORT` | `8081` | HTTP server port |
+| `WORKER_PORT` | `9002` | HTTP server port |
 | `LLM_MODE` | `mock` | LLM mode (`mock` or `disabled`) |
 | `POLICY_ALLOW_TOOLS` | `example.com,api.example.com` | Comma-separated list of allowed domains for HTTP tools |
 | `SANDBOX_MEM_MB` | `4` | WASM sandbox memory limit in MB |
@@ -72,7 +72,7 @@ The agent can be configured using environment variables:
 ### Example Configuration
 
 ```bash
-export WORKER_PORT=8080
+export WORKER_PORT=9002
 export LLM_MODE=mock
 export POLICY_ALLOW_TOOLS="api.github.com,api.openai.com"
 export SANDBOX_MEM_MB=8
@@ -91,7 +91,7 @@ Send a POST request to `/solve` with a JSON task:
 
 **Via Router (recommended):**
 ```bash
-curl -X POST http://localhost:8083/solve \
+curl -X POST http://localhost:9006/solve \
   -H "Content-Type: application/json" \
   -d '{
     "id": "sort-task-1",
@@ -116,7 +116,7 @@ curl -X POST http://localhost:8083/solve \
 
 **Direct to Worker:**
 ```bash
-curl -X POST http://localhost:8081/solve \
+curl -X POST http://localhost:9004/solve \
   -H "Content-Type: application/json" \
   -d '{
     "id": "sort-task-1",
@@ -185,12 +185,12 @@ curl -X POST http://localhost:8081/solve \
 
 **Router:**
 ```bash
-curl http://localhost:8083/health
+curl http://localhost:9007/healthz
 ```
 
 **Worker:**
 ```bash
-curl http://localhost:8081/health
+curl http://localhost:9005/healthz
 ```
 
 Response:
@@ -202,12 +202,12 @@ Response:
 
 **Router:**
 ```bash
-curl http://localhost:8083/metrics
+curl http://localhost:9007/metrics
 ```
 
 **Worker:**
 ```bash
-curl http://localhost:8081/metrics
+curl http://localhost:9005/metrics
 ```
 
 Returns Prometheus-compatible metrics including:
@@ -430,7 +430,7 @@ export OPENAI_API_KEY=your_openai_key
 
 2. **Submit a task that will be solved by artifacts:**
    ```bash
-   curl -X POST http://localhost:8083/solve \
+   curl -X POST http://localhost:9006/solve \
      -H "Content-Type: application/json" \
      -d '{
        "id": "test-sort",
@@ -467,9 +467,9 @@ export OPENAI_API_KEY=your_openai_key
    ```
 
 2. **Access the services:**
-   - Router: http://localhost:8083
-   - Light Worker: http://localhost:8081
-   - Heavy Worker: http://localhost:8082
+  - Router: http://localhost:9006
+  - Light Worker: http://localhost:9004
+  - Heavy Worker: http://localhost:9002
 
 3. **With Nginx load balancer:**
    ```bash
@@ -482,7 +482,7 @@ export OPENAI_API_KEY=your_openai_key
 ```
 ┌─────────────────┐    ┌─────────────────┐
 │   Nginx         │    │   Router        │
-│  (Port 80)      │───▶│  (Port 8083)    │
+│  (Port 80)      │───▶│  (Port 9006)    │
 │  Load Balancer  │    │  Capability-    │
 │                 │    │  Based Router   │
 └─────────────────┘    └─────────────────┘
@@ -491,7 +491,7 @@ export OPENAI_API_KEY=your_openai_key
                     ▼                       ▼
             ┌─────────────────┐    ┌─────────────────┐
             │  Light Worker   │    │  Heavy Worker   │
-            │  (Port 8081)    │    │  (Port 8082)    │
+            │  (Port 9004)    │    │  (Port 9002)    │
             │  KB Only        │    │  LLM+WASM+KB    │
             │  Capabilities:  │    │  Capabilities:  │
             │  KB             │    │  KB+WASM+LLM    │
@@ -545,7 +545,7 @@ make docker-up-nginx
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WORKER_TYPE` | `heavy` | Worker type: `light` or `heavy` |
-| `WORKER_PORT` | `8081` | Port for worker service |
+| `WORKER_PORT` | `9002` | Port for worker service |
 | `LOG_LEVEL` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
 | `TASK_TIMEOUT` | `30s` | Default task timeout |
 | `COMPLEXITY_THRESHOLD` | `5` | Complexity threshold for heavy worker routing |
@@ -594,14 +594,14 @@ All services include comprehensive health check endpoints:
 #### Example Usage
 ```bash
 # Check router capabilities
-curl http://localhost:8083/caps
+curl http://localhost:9006/caps
 
 # Check if all workers are ready
-curl http://localhost:8083/ready
+curl http://localhost:9006/ready
 
 # Check specific worker capabilities
-curl http://localhost:8081/caps  # Light worker
-curl http://localhost:8082/caps  # Heavy worker
+curl http://localhost:9004/caps  # Light worker
+curl http://localhost:9002/caps  # Heavy worker
 ```
 
 ## Architecture

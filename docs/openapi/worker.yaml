@@ -11,9 +11,9 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:8081
+  - url: http://localhost:9004
     description: Light worker server
-  - url: http://localhost:8082
+  - url: http://localhost:9002
     description: Heavy worker server
 
 security:

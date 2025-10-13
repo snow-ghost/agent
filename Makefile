@@ -111,12 +111,12 @@ run-worker:
 # Run heavy worker
 run-heavy:
 	@echo "Running heavy worker..."
-	WORKER_TYPE=heavy WORKER_PORT=8082 go run ./cmd/worker
+	WORKER_TYPE=heavy WORKER_PORT=9002 go run ./cmd/worker
 
 # Run light worker
 run-light:
 	@echo "Running light worker..."
-	WORKER_TYPE=light WORKER_PORT=8081 go run ./cmd/worker
+	WORKER_TYPE=light WORKER_PORT=9004 go run ./cmd/worker
 
 # Build and run the router
 run-router:

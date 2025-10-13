@@ -22,8 +22,8 @@ func TestE2E_FullSystemFlow(t *testing.T) {
 	}
 
 	// Configuration
-	routerURL := getenv("ROUTER_URL", "http://localhost:8083")
-	llmRouterURL := getenv("LLMROUTER_URL", "http://localhost:8090")
+	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
+	llmRouterURL := getenv("LLMROUTER_URL", "http://localhost:9000")
 	artifactsDir := getenv("ARTIFACTS_DIR", "./artifacts")
 
 	// Clean artifacts dir before run
@@ -165,7 +165,7 @@ func TestE2E_WorkerFailover(t *testing.T) {
 		t.Skip("E2E not enabled; set E2E=1 to run")
 	}
 
-	routerURL := getenv("ROUTER_URL", "http://localhost:8083")
+	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
 
 	// Test 1: Heavy worker unavailable (should fallback to light)
 	t.Run("HeavyWorkerUnavailable", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestE2E_Performance(t *testing.T) {
 		t.Skip("E2E not enabled; set E2E=1 to run")
 	}
 
-	routerURL := getenv("ROUTER_URL", "http://localhost:8083")
+	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
 
 	// Test 1: Concurrent requests
 	t.Run("ConcurrentRequests", func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 		t.Skip("E2E not enabled; set E2E=1 to run")
 	}
 
-	routerURL := getenv("ROUTER_URL", "http://localhost:8083")
+	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
 
 	// Test 1: Invalid task format
 	t.Run("InvalidTaskFormat", func(t *testing.T) {

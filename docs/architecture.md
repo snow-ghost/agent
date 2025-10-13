@@ -295,17 +295,17 @@ sequenceDiagram
 services:
   router:
     build: .
-    ports: ["8080:8080"]
+    ports: ["9006:9006", "9007:9007"]
     depends_on: [light-worker, heavy-worker]
   
   light-worker:
     build: .
-    ports: ["8081:8081"]
+    ports: ["9004:9004", "9005:9005"]
     depends_on: [qdrant]
   
   heavy-worker:
     build: .
-    ports: ["8082:8082"]
+    ports: ["9002:9002", "9003:9003"]
     depends_on: [llmrouter, qdrant]
   
   llmrouter:
@@ -350,12 +350,12 @@ spec:
       - name: router
         image: agent/router:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 9006
         env:
         - name: LIGHT_WORKER_URL
-          value: "http://light-worker:8081"
+          value: "http://light-worker:9004"
         - name: HEAVY_WORKER_URL
-          value: "http://heavy-worker:8082"
+          value: "http://heavy-worker:9002"
 ```
 
 ## Configuration Management
@@ -366,13 +366,13 @@ All services use environment variables for configuration:
 
 ```bash
 # Router
-ROUTER_PORT=8080
-LIGHT_WORKER_URL=http://localhost:8081
-HEAVY_WORKER_URL=http://localhost:8082
+ROUTER_PORT=9006
+LIGHT_WORKER_URL=http://localhost:9004
+HEAVY_WORKER_URL=http://localhost:9002
 COMPLEXITY_THRESHOLD=5
 
 # Worker
-WORKER_PORT=8081
+WORKER_PORT=9002
 KB_PATH=./kb
 CACHE_SIZE=1000
 LOG_LEVEL=info

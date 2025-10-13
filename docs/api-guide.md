@@ -21,7 +21,7 @@ The Agent API supports two authentication methods:
 ```bash
 curl -H "X-API-Key: your-api-key" \
      -H "Content-Type: application/json" \
-     http://localhost:8080/solve
+     http://localhost:9006/solve
 ```
 
 ### Bearer Token Authentication
@@ -29,7 +29,7 @@ curl -H "X-API-Key: your-api-key" \
 ```bash
 curl -H "Authorization: Bearer your-jwt-token" \
      -H "Content-Type: application/json" \
-     http://localhost:8080/solve
+     http://localhost:9006/solve
 ```
 
 ### Getting API Keys
@@ -51,7 +51,7 @@ The Router API is the main entry point for task processing.
 
 ### Base URL
 
-- Development: `http://localhost:8080`
+- Development: `http://localhost:9006`
 - Production: `https://api.agent.dev`
 
 ### Solve Task
@@ -110,7 +110,7 @@ The Router API is the main entry point for task processing.
 **Example with cURL**:
 
 ```bash
-curl -X POST http://localhost:8080/solve \
+curl -X POST http://localhost:9006/solve \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -139,8 +139,8 @@ curl -X POST http://localhost:8080/solve \
 {
   "status": "ok",
   "service": "agent-router",
-  "light_worker": "http://localhost:8081",
-  "heavy_worker": "http://localhost:8082",
+  "light_worker": "http://localhost:9004",
+  "heavy_worker": "http://localhost:9002",
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
@@ -156,7 +156,7 @@ curl -X POST http://localhost:8080/solve \
 ```json
 {
   "light_worker": {
-    "url": "http://localhost:8081",
+    "url": "http://localhost:9004",
     "capabilities": {
       "use_kb": true,
       "use_wasm": false,
@@ -164,7 +164,7 @@ curl -X POST http://localhost:8080/solve \
     }
   },
   "heavy_worker": {
-    "url": "http://localhost:8082",
+    "url": "http://localhost:9002",
     "capabilities": {
       "use_kb": true,
       "use_wasm": true,
@@ -186,8 +186,8 @@ Workers handle the actual task execution.
 
 ### Base URLs
 
-- Light Worker: `http://localhost:8081`
-- Heavy Worker: `http://localhost:8082`
+- Light Worker: `http://localhost:9004`
+- Heavy Worker: `http://localhost:9002`
 
 ### Solve Task
 
@@ -201,7 +201,7 @@ Workers handle the actual task execution.
 
 ```bash
 # Direct call to light worker
-curl -X POST http://localhost:8081/solve \
+curl -X POST http://localhost:9004/solve \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -465,7 +465,7 @@ import requests
 import json
 
 def solve_task(task_data, api_key):
-    url = "http://localhost:8080/solve"
+    url = "http://localhost:9006/solve"
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key
@@ -561,7 +561,7 @@ class AgentClient:
         return response.json()
 
 # Usage
-client = AgentClient("http://localhost:8080", "your-api-key")
+client = AgentClient("http://localhost:9006", "your-api-key")
 
 # Solve a sorting task
 task = {
@@ -637,7 +637,7 @@ class AgentClient {
 }
 
 // Usage
-const client = new AgentClient('http://localhost:8080', 'your-api-key');
+const client = new AgentClient('http://localhost:9006', 'your-api-key');
 
 // Solve a task
 const task = {
@@ -720,7 +720,7 @@ func (c *AgentClient) SolveTask(task interface{}) (map[string]interface{}, error
 
 // Usage
 func main() {
-    client := NewAgentClient("http://localhost:8080", "your-api-key")
+    client := NewAgentClient("http://localhost:9006", "your-api-key")
     
     task := map[string]interface{}{
         "id":     "sort-1",
@@ -758,11 +758,11 @@ func main() {
 
 ```bash
 # Check router health
-curl http://localhost:8080/health
+curl http://localhost:9007/healthz
 
 # Check worker health
-curl http://localhost:8081/health
-curl http://localhost:8082/health
+curl http://localhost:9005/healthz
+curl http://localhost:9003/healthz
 
 # Check LLM router health
 curl http://localhost:8090/health
@@ -772,9 +772,9 @@ curl http://localhost:8090/health
 
 ```bash
 # Get Prometheus metrics
-curl http://localhost:8080/metrics
-curl http://localhost:8081/metrics
-curl http://localhost:8082/metrics
+curl http://localhost:9007/metrics
+curl http://localhost:9005/metrics
+curl http://localhost:9003/metrics
 curl http://localhost:8090/metrics
 ```
 

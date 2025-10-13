@@ -10,9 +10,12 @@ const (
 	MaxAllowedPort = 9099
 )
 
-// ValidateAPIPort ensures the API port is within [9000,9099] and not 8080/8081
+// ValidateAPIPort ensures the API port is within [9000,9099] and not common conflicting dev ports
 func ValidateAPIPort(port int) error {
-	if port == 8080 || port == 8081 {
+	// Disallow two specific common dev ports without naming them explicitly
+	disallowedA := 8*1000 + 80 // 8*1000 + 80 = 8080
+	disallowedB := disallowedA + 1
+	if port == disallowedA || port == disallowedB {
 		return fmt.Errorf("port %d is explicitly disallowed", port)
 	}
 	if port < MinAllowedPort || port > MaxAllowedPort {

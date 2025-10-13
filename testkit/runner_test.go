@@ -89,7 +89,7 @@ func TestE2E_DockerCompose_KB_Write(t *testing.T) {
 		t.Skip("E2E not enabled; set E2E=1 to run")
 	}
 
-	routerURL := getenv("ROUTER_URL", "http://localhost:8083")
+	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
 
 	// Clean artifacts dir before run
 	artifactsDir := getenv("ARTIFACTS_DIR", "./artifacts")
