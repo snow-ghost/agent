@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/metrics"
 	"github.com/snow-ghost/agent/pkg/ports"
 	"github.com/snow-ghost/agent/worker"
 	"github.com/snow-ghost/agent/worker/capabilities"
@@ -71,13 +72,11 @@ func main() {
 	// Get telemetry from worker if available
 	// Try to get telemetry from the worker
 	var telemetryHandler http.HandlerFunc
-	var metricsHandler http.HandlerFunc
 
 	// Check if worker has GetTelemetry method (common pattern)
 	if telemetryGetter, ok := workerInstance.(interface{ GetTelemetry() *telemetry.Telemetry }); ok {
 		telemetry := telemetryGetter.GetTelemetry()
 		telemetryHandler = telemetry.HealthHandler
-		metricsHandler = telemetry.MetricsHandler
 	} else {
 		// Fallback health endpoint
 		telemetryHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -85,11 +84,7 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, `{"status":"ok","service":"agent-worker","type":"%s"}`, workerInstance.Type())
 		}
-		metricsHandler = func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `{"metrics":"not_available"}`)
-		}
+		// Metrics are served by the shared metrics package on the metrics server
 	}
 
 	// Health and metrics will be exposed on a separate service port
@@ -117,11 +112,23 @@ func main() {
 		}
 	}()
 
-	// Service endpoints on API_PORT+1
+	// Service endpoints on METRICS_ADDR (defaults to 0.0.0.0:servicePort)
+	if err := metrics.Init(); err != nil {
+		logger.Error("metrics init failed", "error", err)
+	}
+	metricsPath := os.Getenv("METRICS_PATH")
+	if metricsPath == "" {
+		metricsPath = "/metrics"
+	}
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = "0.0.0.0:" + strconv.Itoa(servicePort)
+	}
+
 	serviceMux := http.NewServeMux()
 	serviceMux.Handle("/healthz", telemetryHandler)
-	serviceMux.Handle("/metrics", metricsHandler)
-	serviceSrv := &http.Server{Addr: ":" + strconv.Itoa(servicePort), Handler: serviceMux}
+	serviceMux.Handle(metricsPath, metrics.Handler())
+	serviceSrv := &http.Server{Addr: metricsAddr, Handler: serviceMux}
 	go func() {
 		logger.Info("worker service endpoints starting", "addr", serviceSrv.Addr)
 		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

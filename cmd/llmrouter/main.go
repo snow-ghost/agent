@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/metrics"
 	"github.com/snow-ghost/agent/pkg/ports"
 	"github.com/snow-ghost/agent/pkg/router/httpserver"
 )
@@ -107,13 +108,28 @@ func main() {
 		log.Fatal("failed to start server:", err)
 	}
 
-	// Start service server exposing /healthz and /metrics on API_PORT+1
+	// Initialize metrics and start metrics/service server on METRICS_ADDR
+	if err := metrics.Init(); err != nil {
+		logger.Error("metrics init failed", "error", err)
+	}
+	metricsPath := os.Getenv("METRICS_PATH")
+	if metricsPath == "" {
+		metricsPath = "/metrics"
+	}
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = "0.0.0.0:" + strconv.Itoa(servicePort)
+	}
 	serviceMux := http.NewServeMux()
-	serviceMux.HandleFunc("/healthz", server.HandleHealth)
-	serviceMux.HandleFunc("/metrics", server.HandleMetrics)
-	serviceSrv := &http.Server{Addr: ":" + strconv.Itoa(servicePort), Handler: serviceMux}
+	serviceMux.Handle(metricsPath, metrics.Handler())
+	serviceMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	serviceSrv := &http.Server{Addr: metricsAddr, Handler: serviceMux}
 	go func() {
-		logger.Info("starting service endpoints", "port", servicePort)
+		logger.Info("starting service endpoints", "addr", metricsAddr)
 		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("service endpoints server failed", "error", err)
 		}
