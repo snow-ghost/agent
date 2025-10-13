@@ -64,7 +64,7 @@ services:
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
       - INDEX_ON_START=${INDEX_ON_START:-true}
       # LLM Router configuration
-      - LLM_ROUTER_URL=http://llmrouter:8090
+      - LLM_ROUTER_URL=http://llmrouter:9000
       - DEFAULT_MODEL=${DEFAULT_MODEL:-openai:gpt-4o-mini}
       - MODEL_TAG=${MODEL_TAG:-general}
     volumes:

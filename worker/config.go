@@ -39,7 +39,7 @@ func LoadConfig() *Config {
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 
 		// LLM Router configuration
-		LLMRouterURL: getEnv("LLM_ROUTER_URL", "http://llmrouter:8090"),
+		LLMRouterURL: getEnv("LLM_ROUTER_URL", "http://llmrouter:9000"),
 		DefaultModel: getEnv("DEFAULT_MODEL", "openai:gpt-4o-mini"),
 		ModelTag:     getEnv("MODEL_TAG", "general"),
 	}

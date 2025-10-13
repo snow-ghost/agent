@@ -11,7 +11,7 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:8090
+  - url: http://localhost:9000
     description: Development server
   - url: https://llm.agent.dev
     description: Production server

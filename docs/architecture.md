@@ -310,7 +310,7 @@ services:
   
   llmrouter:
     build: .
-    ports: ["8090:8090"]
+    ports: ["9000:9000"]
   
   qdrant:
     image: qdrant/qdrant:latest
@@ -378,7 +378,7 @@ CACHE_SIZE=1000
 LOG_LEVEL=info
 
 # LLM Router
-LLMROUTER_PORT=8090
+LLMROUTER_PORT=9000
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 COHERE_API_KEY=co-...

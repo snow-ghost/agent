@@ -243,7 +243,7 @@ The LLM Router provides access to various LLM providers.
 
 ### Base URL
 
-- Development: `http://localhost:8090`
+- Development: `http://localhost:9000`
 - Production: `https://llm.agent.dev`
 
 ### Chat Completions
@@ -307,7 +307,7 @@ The LLM Router provides access to various LLM providers.
 **Example with cURL**:
 
 ```bash
-curl -X POST http://localhost:8090/v1/chat/completions \
+curl -X POST http://localhost:9000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -394,7 +394,7 @@ data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288
 **Example with cURL**:
 
 ```bash
-curl -X POST http://localhost:8090/v1/embeddings \
+curl -X POST http://localhost:9000/v1/embeddings \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -765,7 +765,7 @@ curl http://localhost:9005/healthz
 curl http://localhost:9003/healthz
 
 # Check LLM router health
-curl http://localhost:8090/health
+curl http://localhost:9001/healthz
 ```
 
 ### Metrics
@@ -775,7 +775,7 @@ curl http://localhost:8090/health
 curl http://localhost:9007/metrics
 curl http://localhost:9005/metrics
 curl http://localhost:9003/metrics
-curl http://localhost:8090/metrics
+curl http://localhost:9001/metrics
 ```
 
 ### Logs

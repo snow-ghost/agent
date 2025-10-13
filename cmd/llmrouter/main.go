@@ -97,33 +97,24 @@ func main() {
 		log.Fatal("invalid derived service port:", err)
 	}
 
-	// Create and start API server
-	server := httpserver.NewServer(config.Port, logger)
-
-	logger.Info("starting LLM router service",
-		"port", config.Port,
-		"log_level", config.LogLevel)
-
-	// Start API server with graceful shutdown
-	if err := server.StartWithGracefulShutdown(); err != nil {
-		log.Fatal("failed to start server:", err)
-	}
-
-	// Initialize metrics and start metrics/service server on METRICS_ADDR
+	// Initialize metrics first
 	if err := metrics.Init(); err != nil {
 		logger.Error("metrics init failed", "error", err)
 	}
 
 	// Initialize LLM router metrics
 	llmmetrics.Init()
+
+	// Create API server
+	apiAddr := "0.0.0.0:" + strconv.Itoa(apiPort)
+	server := httpserver.NewServer(apiAddr, logger)
+
+	// Create service/metrics server
 	metricsPath := os.Getenv("METRICS_PATH")
 	if metricsPath == "" {
 		metricsPath = "/metrics"
 	}
-	metricsAddr := os.Getenv("METRICS_ADDR")
-	if metricsAddr == "" {
-		metricsAddr = "0.0.0.0:" + strconv.Itoa(servicePort)
-	}
+	serviceAddr := "0.0.0.0:" + strconv.Itoa(servicePort)
 	serviceMux := http.NewServeMux()
 	serviceMux.Handle(metricsPath, metrics.Handler())
 	serviceMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -131,13 +122,25 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	serviceSrv := &http.Server{Addr: metricsAddr, Handler: serviceMux}
+	serviceSrv := &http.Server{Addr: serviceAddr, Handler: serviceMux}
+
+	logger.Info("starting LLM router service",
+		"api_port", apiPort,
+		"service_port", servicePort,
+		"log_level", config.LogLevel)
+
+	// Start both servers
 	go func() {
-		logger.Info("starting service endpoints", "addr", metricsAddr)
+		logger.Info("starting service endpoints", "addr", serviceAddr)
 		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("service endpoints server failed", "error", err)
 		}
 	}()
+
+	// Start API server with graceful shutdown
+	if err := server.StartWithGracefulShutdown(); err != nil {
+		log.Fatal("failed to start server:", err)
+	}
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -151,13 +154,15 @@ func main() {
 	defer cancel()
 
 	// Shutdown servers
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("LLM router API server shutdown failed", "error", err)
+	} else {
+		logger.Info("LLM router API server shutdown complete")
+	}
 	if err := serviceSrv.Shutdown(ctx); err != nil {
 		logger.Error("LLM router service server shutdown failed", "error", err)
-	}
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("LLM router server shutdown failed", "error", err)
 	} else {
-		logger.Info("LLM router server shutdown complete")
+		logger.Info("LLM router service server shutdown complete")
 	}
 
 	// Close server resources
