@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/snow-ghost/agent/design"
 	"github.com/snow-ghost/agent/pkg/router/core"
@@ -16,6 +18,98 @@ import (
 // Designer interface for algorithm design operations
 type Designer interface {
 	Design(ctx context.Context, taskJSON string) (design.HypothesisDesign, []byte, error)
+}
+
+// ExtractFirstJSONObject extracts the first valid JSON object from potentially dirty input
+// Handles markdown code blocks, text before/after JSON, and malformed responses
+func ExtractFirstJSONObject(data []byte) ([]byte, error) {
+	content := string(data)
+
+	// Remove markdown code blocks
+	markdownRegex := regexp.MustCompile("```(?:json)?\\s*\\n?(.*?)\\n?```")
+	matches := markdownRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) > 0 {
+		// Use the first code block content
+		content = matches[0][1]
+	}
+
+	// Find the first '{' character
+	start := strings.Index(content, "{")
+	if start == -1 {
+		return nil, fmt.Errorf("no JSON object found in response")
+	}
+
+	// Extract from the first '{' to the end
+	jsonCandidate := content[start:]
+
+	// Use bracket balancing to find the end of the JSON object
+	jsonBytes, err := extractBalancedJSON([]byte(jsonCandidate))
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract balanced JSON: %w", err)
+	}
+
+	// Validate that it's valid JSON
+	var testObj map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &testObj); err != nil {
+		return nil, fmt.Errorf("extracted content is not valid JSON: %w", err)
+	}
+
+	return jsonBytes, nil
+}
+
+// extractBalancedJSON finds the first complete JSON object using bracket balancing
+func extractBalancedJSON(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty input")
+	}
+
+	// Skip whitespace
+	start := 0
+	for start < len(data) && unicode.IsSpace(rune(data[start])) {
+		start++
+	}
+
+	if start >= len(data) || data[start] != '{' {
+		return nil, fmt.Errorf("input does not start with '{'")
+	}
+
+	// Track bracket balance
+	balance := 0
+	inString := false
+	escapeNext := false
+
+	for i := start; i < len(data); i++ {
+		char := data[i]
+
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+
+		if char == '\\' {
+			escapeNext = true
+			continue
+		}
+
+		if char == '"' {
+			inString = !inString
+			continue
+		}
+
+		if !inString {
+			if char == '{' {
+				balance++
+			} else if char == '}' {
+				balance--
+				if balance == 0 {
+					// Found the end of the JSON object
+					return data[start : i+1], nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("unbalanced brackets in JSON")
 }
 
 // DesignClient represents a client for design operations
@@ -141,11 +235,12 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 		return design.HypothesisDesign{}, rawResponse, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Sanitize and extract JSON from the response text
-	jsonStr, err := sanitizeJSON(designResp.Text)
+	// Extract and sanitize JSON from the response text
+	jsonBytes, err := ExtractFirstJSONObject([]byte(designResp.Text))
 	if err != nil {
 		return design.HypothesisDesign{}, rawResponse, fmt.Errorf("failed to extract JSON from response: %w", err)
 	}
+	jsonStr := string(jsonBytes)
 
 	// Parse the sanitized JSON into HypothesisDesign
 	var hypothesis design.HypothesisDesign
@@ -161,49 +256,6 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 	}
 
 	return hypothesis, rawResponse, nil
-}
-
-// sanitizeJSON extracts the first valid JSON object from a string that may contain garbage
-func sanitizeJSON(text string) (string, error) {
-	// Remove leading/trailing whitespace
-	text = strings.TrimSpace(text)
-
-	// Try to find JSON object boundaries
-	// Look for the first '{' and the last '}'
-	start := strings.Index(text, "{")
-	if start == -1 {
-		return "", fmt.Errorf("no JSON object found in response")
-	}
-
-	// Find the matching closing brace
-	braceCount := 0
-	end := -1
-	for i := start; i < len(text); i++ {
-		if text[i] == '{' {
-			braceCount++
-		} else if text[i] == '}' {
-			braceCount--
-			if braceCount == 0 {
-				end = i
-				break
-			}
-		}
-	}
-
-	if end == -1 {
-		return "", fmt.Errorf("unclosed JSON object in response")
-	}
-
-	// Extract the JSON part
-	jsonStr := text[start : end+1]
-
-	// Validate that it's valid JSON
-	var temp interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &temp); err != nil {
-		return "", fmt.Errorf("extracted text is not valid JSON: %w", err)
-	}
-
-	return jsonStr, nil
 }
 
 // readAllBytes reads all bytes from a reader (helper function)

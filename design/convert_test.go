@@ -2,6 +2,7 @@ package design
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
@@ -243,4 +244,90 @@ func TestGenerateHypothesisID(t *testing.T) {
 	if !contains(id, expectedPrefix) {
 		t.Errorf("Expected ID to contain %s, got %s", expectedPrefix, id)
 	}
+}
+
+// Helper functions for tests
+
+func createValidDesign() HypothesisDesign {
+	return HypothesisDesign{
+		Status: "ok",
+		Algorithm: struct {
+			Name       string `json:"name"`
+			Idea       string `json:"idea"`
+			Complexity struct {
+				Time  string `json:"time"`
+				Space string `json:"space"`
+			} `json:"complexity"`
+		}{
+			Name: "test-algorithm",
+			Idea: "Test algorithm for sorting",
+			Complexity: struct {
+				Time  string `json:"time"`
+				Space string `json:"space"`
+			}{
+				Time:  "O(n log n)",
+				Space: "O(1)",
+			},
+		},
+		Code: struct {
+			Lang  string `json:"lang"`
+			Entry string `json:"entry"`
+			Src   string `json:"src"`
+		}{
+			Lang:  "af-dsl",
+			Entry: "program",
+			Src:   "(let x input (return x))",
+		},
+		Evaluation: struct {
+			Metrics       []string `json:"metrics"`
+			Fitness       string   `json:"fitness"`
+			PassThreshold float64  `json:"pass_threshold"`
+		}{
+			Metrics:       []string{"correctness", "time", "size"},
+			Fitness:       "correctness*0.8 + time*0.15 + size*0.05",
+			PassThreshold: 0.85,
+		},
+		Tests: struct {
+			Unit []struct {
+				Name   string  `json:"name"`
+				Input  string  `json:"input"`
+				Oracle string  `json:"oracle"`
+				Weight float64 `json:"weight"`
+			} `json:"unit"`
+			Property []struct {
+				Name      string   `json:"name"`
+				Generator string   `json:"generator"`
+				Checks    []string `json:"checks"`
+			} `json:"property"`
+		}{
+			Unit: []struct {
+				Name   string  `json:"name"`
+				Input  string  `json:"input"`
+				Oracle string  `json:"oracle"`
+				Weight float64 `json:"weight"`
+			}{
+				{
+					Name:   "test_1",
+					Input:  `{"numbers": [3,1,2]}`,
+					Oracle: `{"sorted": [1,2,3]}`,
+					Weight: 1.0,
+				},
+			},
+			Property: []struct {
+				Name      string   `json:"name"`
+				Generator string   `json:"generator"`
+				Checks    []string `json:"checks"`
+			}{
+				{
+					Name:      "sorted_property",
+					Generator: "list<int>(n<=100)",
+					Checks:    []string{"sorted_non_decreasing", "permutes"},
+				},
+			},
+		},
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

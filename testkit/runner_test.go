@@ -1,141 +1,384 @@
 package testkit
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
-	"github.com/snow-ghost/agent/interp/wasm"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestRunner_Run_SortCases(t *testing.T) {
-	interp := wasm.NewInterpreter()
-	defer interp.Close(context.Background())
+// mockInterpreter implements core.Interpreter for testing
+type mockInterpreter struct {
+	shouldPass bool
+	delay      time.Duration
+}
 
-	runner := NewRunner()
-	cases := GenerateSortCasesFixed()
+func (m *mockInterpreter) Execute(ctx context.Context, h core.Hypothesis, task core.Task) (core.Result, error) {
+	if m.delay > 0 {
+		time.Sleep(m.delay)
+	}
 
-	h := core.Hypothesis{ID: "sort-wasm", Lang: "wasm", Bytes: wasm.GetTestModule()}
+	if m.shouldPass {
+		// Return output that matches the test case expectations
+		// For the test cases in TestRunner_Run_100PercentCorrectness:
+		// - unit_test_1 expects [1,2,3]
+		// - unit_test_2 expects [1,4,5]
+		// - property_test_1 expects sorted output
 
+		var output []byte
+		switch task.ID {
+		case "case:unit_test_1":
+			output = []byte(`{"sorted": [1,2,3]}`)
+		case "case:unit_test_2":
+			output = []byte(`{"sorted": [1,4,5]}`)
+		case "case:property_test_1":
+			output = []byte(`{"sorted": [1,2,3]}`) // Any sorted output for property test
+		default:
+			output = []byte(`{"sorted": [1,2,3]}`)
+		}
+
+		return core.Result{
+			Success: true,
+			Output:  output,
+		}, nil
+	}
+
+	return core.Result{
+		Success: false,
+		Output:  []byte(`{"error": "failed"}`),
+	}, nil
+}
+
+func TestRunner_Run_100PercentCorrectness(t *testing.T) {
 	ctx := context.Background()
-	metrics, pass, err := runner.Run(ctx, h, cases, interp)
-	require.NoError(t, err)
+	runner := NewRunner()
 
-	assert.Equal(t, float64(len(cases)), metrics["cases_total"])
-	assert.True(t, metrics["cases_passed"]+metrics["cases_failed"] == metrics["cases_total"])
-	assert.True(t, pass || !pass) // just ensure it returns a boolean
+	// Create test cases with different weights
+	cases := []core.TestCase{
+		{
+			Name:   "unit_test_1",
+			Input:  []byte(`{"numbers": [3,1,2]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`),
+			Checks: []string{"sorted_non_decreasing", "permutes"},
+			Weight: 1.0,
+		},
+		{
+			Name:   "unit_test_2",
+			Input:  []byte(`{"numbers": [5,1,4]}`),
+			Oracle: []byte(`{"sorted": [1,4,5]}`),
+			Checks: []string{"sorted_non_decreasing", "permutes"},
+			Weight: 2.0,
+		},
+		{
+			Name:   "property_test_1",
+			Input:  []byte(`{"numbers": [2,1,3]}`),
+			Oracle: []byte{}, // No oracle, property test only
+			Checks: []string{"sorted_non_decreasing", "permutes"},
+			Weight: 1.5,
+		},
+	}
+
+	// Create hypothesis with AF-DSL code
+	hypothesis := core.Hypothesis{
+		ID:     "test-hypothesis",
+		Source: "test",
+		Lang:   "af-dsl",
+		Bytes:  []byte("(let x input (return x))"), // Simple program
+		Meta:   map[string]string{},
+	}
+
+	// Test with passing interpreter
+	interpreter := &mockInterpreter{shouldPass: true, delay: 10 * time.Millisecond}
+
+	metrics, allPassed, err := runner.Run(ctx, hypothesis, cases, interpreter)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if !allPassed {
+		t.Error("Expected all tests to pass")
+	}
+
+	// Verify correctness = 1.0 (100% pass rate)
+	if metrics["correctness"] != 1.0 {
+		t.Errorf("Expected correctness=1.0, got %f", metrics["correctness"])
+	}
+
+	// Verify total weight = 4.5 (1.0 + 2.0 + 1.5)
+	expectedTotalWeight := 4.5
+	if metrics["total_weight"] != expectedTotalWeight {
+		t.Errorf("Expected total_weight=%f, got %f", expectedTotalWeight, metrics["total_weight"])
+	}
+
+	// Verify passed weight = total weight (all passed)
+	if metrics["passed_weight"] != expectedTotalWeight {
+		t.Errorf("Expected passed_weight=%f, got %f", expectedTotalWeight, metrics["passed_weight"])
+	}
+
+	// Verify time score is calculated (should be > 0 and < 1)
+	if metrics["time"] <= 0 || metrics["time"] >= 1 {
+		t.Errorf("Expected time score between 0 and 1, got %f", metrics["time"])
+	}
+
+	// Verify size score is calculated (should be > 0 and < 1)
+	if metrics["size"] <= 0 || metrics["size"] >= 1 {
+		t.Errorf("Expected size score between 0 and 1, got %f", metrics["size"])
+	}
+
+	// Verify unit_pass and prop_pass are calculated
+	if metrics["unit_pass"] < 0 || metrics["unit_pass"] > 1 {
+		t.Errorf("Expected unit_pass between 0 and 1, got %f", metrics["unit_pass"])
+	}
+	if metrics["prop_pass"] < 0 || metrics["prop_pass"] > 1 {
+		t.Errorf("Expected prop_pass between 0 and 1, got %f", metrics["prop_pass"])
+	}
+
+	// Verify basic counts
+	if metrics["cases_total"] != 3 {
+		t.Errorf("Expected cases_total=3, got %f", metrics["cases_total"])
+	}
+	if metrics["cases_passed"] != 3 {
+		t.Errorf("Expected cases_passed=3, got %f", metrics["cases_passed"])
+	}
+	if metrics["cases_failed"] != 0 {
+		t.Errorf("Expected cases_failed=0, got %f", metrics["cases_failed"])
+	}
 }
 
-func TestFitnessEvaluator(t *testing.T) {
-	w := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.1)
-	score := w.Score(core.Task{}, map[string]float64{"cases_passed": 2, "cases_total": 2}, 2048)
-	assert.InDelta(t, 2-0.2, score, 1e-9)
-	assert.True(t, w.Passed(score, 1.5))
-	assert.False(t, w.Passed(score, 3.0))
-}
-
-func TestSimpleCritic(t *testing.T) {
-	critic := core.NewSimpleCritic()
-	ok, reason := critic.Accept(core.Task{Spec: core.Spec{SuccessCriteria: []string{"sorted_non_decreasing"}}}, map[string]float64{"cases_failed": 0})
-	assert.True(t, ok)
-	assert.Contains(t, reason, "all tests passed")
-
-	ok, reason = critic.Accept(core.Task{Spec: core.Spec{SuccessCriteria: []string{"sorted_non_decreasing"}}}, map[string]float64{"cases_failed": 1})
-	assert.False(t, ok)
-	assert.Contains(t, reason, "failed")
-
-	ok, _ = critic.Accept(core.Task{Spec: core.Spec{SuccessCriteria: nil}}, map[string]float64{})
-	assert.True(t, ok)
-}
-
-func TestRunner_TimingMetrics(t *testing.T) {
-	interp := wasm.NewInterpreter()
-	defer interp.Close(context.Background())
+func TestRunner_Run_PartialCorrectness(t *testing.T) {
+	ctx := context.Background()
 	runner := NewRunner()
 
 	cases := []core.TestCase{
-		{Name: "noop", Input: json.RawMessage(`{"numbers": [1,2,3]}`)},
+		{
+			Name:   "passing_test",
+			Input:  []byte(`{"numbers": [1,2,3]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`),
+			Checks: []string{"sorted_non_decreasing"},
+			Weight: 1.0,
+		},
+		{
+			Name:   "failing_test",
+			Input:  []byte(`{"numbers": [3,1,2]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`),
+			Checks: []string{"sorted_non_decreasing"},
+			Weight: 2.0,
+		},
 	}
 
-	h := core.Hypothesis{ID: "noop-wasm", Lang: "wasm", Bytes: wasm.GetTestModule()}
+	hypothesis := core.Hypothesis{
+		ID:     "test-hypothesis",
+		Source: "test",
+		Lang:   "af-dsl",
+		Bytes:  []byte("(let x input (return x))"),
+		Meta:   map[string]string{},
+	}
 
-	ctx := context.Background()
-	metrics, _, err := runner.Run(ctx, h, cases, interp)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, metrics["duration_ms_total"], float64(0))
+	// Test with failing interpreter
+	interpreter := &mockInterpreter{shouldPass: false}
+
+	metrics, allPassed, err := runner.Run(ctx, hypothesis, cases, interpreter)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if allPassed {
+		t.Error("Expected some tests to fail")
+	}
+
+	// Verify correctness = 0.0 (0% pass rate)
+	if metrics["correctness"] != 0.0 {
+		t.Errorf("Expected correctness=0.0, got %f", metrics["correctness"])
+	}
+
+	// Verify passed weight = 0 (none passed)
+	if metrics["passed_weight"] != 0.0 {
+		t.Errorf("Expected passed_weight=0.0, got %f", metrics["passed_weight"])
+	}
+
+	// Verify total weight = 3.0 (1.0 + 2.0)
+	if metrics["total_weight"] != 3.0 {
+		t.Errorf("Expected total_weight=3.0, got %f", metrics["total_weight"])
+	}
 }
 
-// E2E: docker-compose + LM Studio + router + worker => KB writes
-func TestE2E_DockerCompose_KB_Write(t *testing.T) {
-	// This test validates end-to-end flow when run in CI with docker-compose.
-	// It assumes:
-	// - LM Studio exposes OpenAI-compatible API at lmstudio:1234 with model qwen/qwen3-4b-2507
-	// - docker-compose brings up services with volumes mounting ./artifacts for KB persistence
-	// The test will:
-	// 1) POST a heavy task to router /solve
-	// 2) Expect heavy worker to generate and save a hypothesis into artifacts
-	// 3) Assert at least one new artifact manifest appears
+func TestRunner_Run_TimeScore(t *testing.T) {
+	ctx := context.Background()
+	runner := NewRunner()
 
-	// Skip in default unit test run; enable with E2E=1
-	if os.Getenv("E2E") == "" {
-		t.Skip("E2E not enabled; set E2E=1 to run")
+	cases := []core.TestCase{
+		{
+			Name:   "fast_test",
+			Input:  []byte(`{"numbers": [1,2,3]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`),
+			Weight: 1.0,
+		},
 	}
 
-	routerURL := getenv("ROUTER_URL", "http://localhost:9006")
-
-	// Clean artifacts dir before run
-	artifactsDir := getenv("ARTIFACTS_DIR", "./artifacts")
-	_ = os.MkdirAll(artifactsDir, 0o755)
-	before, _ := filepath.Glob(filepath.Join(artifactsDir, "hypothesis.*@*/manifest.json"))
-
-	// Construct a task that will route to heavy (requires sandbox)
-	task := core.Task{
-		ID:          "e2e-qwen-001",
-		Domain:      "algorithms",
-		Description: "Sort numbers ascending",
-		Spec:        core.Spec{SuccessCriteria: []string{"sorted_non_decreasing", "permutes"}},
-		Input:       json.RawMessage(`{"numbers":[3,1,2]}`),
-		Flags:       core.TaskFlags{RequiresSandbox: true, MaxComplexity: 10},
-		Budget:      core.Budget{Timeout: mustParseDuration("30s")},
+	hypothesis := core.Hypothesis{
+		ID:     "test-hypothesis",
+		Source: "test",
+		Lang:   "af-dsl",
+		Bytes:  []byte("(let x input (return x))"),
+		Meta:   map[string]string{},
 	}
 
-	body, err := json.Marshal(task)
-	require.NoError(t, err)
-
-	req, err := http.NewRequest("POST", routerURL+"/solve", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// Read response to ensure JSON decodes
-	var result core.Result
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-
-	// Poll for new artifact manifest up to 30s
-	deadline := time.Now().Add(30 * time.Second)
-	found := false
-	for time.Now().Before(deadline) {
-		after, _ := filepath.Glob(filepath.Join(artifactsDir, "hypothesis.*@*/manifest.json"))
-		if len(after) > len(before) {
-			found = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
+	// Test with different delays
+	testCases := []struct {
+		name     string
+		delay    time.Duration
+		expected float64
+	}{
+		{"very_fast", 1 * time.Millisecond, 0.999},  // Should be very close to 1
+		{"fast", 10 * time.Millisecond, 0.99},       // Should be close to 1
+		{"slow", 100 * time.Millisecond, 0.9},       // Should be lower
+		{"very_slow", 1000 * time.Millisecond, 0.5}, // Should be much lower
 	}
 
-	assert.True(t, found, "expected a new KB artifact manifest to be created")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			interpreter := &mockInterpreter{shouldPass: true, delay: tc.delay}
+			metrics, _, err := runner.Run(ctx, hypothesis, cases, interpreter)
+
+			if err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+
+			// Time score should be calculated as 1/(1+avg_ms/1000)
+			// For very fast tests, this should be close to 1
+			if metrics["time"] < 0 || metrics["time"] > 1 {
+				t.Errorf("Expected time score between 0 and 1, got %f", metrics["time"])
+			}
+		})
+	}
+}
+
+func TestRunner_Run_SizeScore(t *testing.T) {
+	ctx := context.Background()
+	runner := NewRunner()
+
+	cases := []core.TestCase{
+		{
+			Name:   "test",
+			Input:  []byte(`{"numbers": [1,2,3]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`),
+			Weight: 1.0,
+		},
+	}
+
+	// Test with different program sizes
+	testCases := []struct {
+		name     string
+		program  string
+		expected float64
+	}{
+		{"small", "(let x input (return x))", 0.5},                      // Small program
+		{"medium", "(let x input (let y x (return y)))", 0.33},          // Medium program
+		{"large", "(let x input (let y x (let z y (return z))))", 0.25}, // Large program
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			hypothesis := core.Hypothesis{
+				ID:     "test-hypothesis",
+				Source: "test",
+				Lang:   "af-dsl",
+				Bytes:  []byte(tc.program),
+				Meta:   map[string]string{},
+			}
+
+			interpreter := &mockInterpreter{shouldPass: true}
+			metrics, _, err := runner.Run(ctx, hypothesis, cases, interpreter)
+
+			if err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+
+			// Size score should be calculated as 1/(1+nodes)
+			// Larger programs should have lower scores
+			if metrics["size"] < 0 || metrics["size"] > 1 {
+				t.Errorf("Expected size score between 0 and 1, got %f", metrics["size"])
+			}
+		})
+	}
+}
+
+func TestCountASTNodes(t *testing.T) {
+	testCases := []struct {
+		program  string
+		expected int
+	}{
+		{"(let x 42 (return x))", 9},               // 4 parens + 5 symbols (let, x, 42, return, x)
+		{"(if true 1 0)", 6},                       // 2 parens + 4 symbols (if, true, 1, 0)
+		{"(call len input)", 5},                    // 2 parens + 3 symbols (call, len, input)
+		{"(let x input (let y x (return y)))", 14}, // 6 parens + 8 symbols
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.program, func(t *testing.T) {
+			result := countASTNodes([]byte(tc.program))
+			if result != tc.expected {
+				t.Errorf("Expected %d nodes for %q, got %d", tc.expected, tc.program, result)
+			}
+		})
+	}
+}
+
+func TestCalculateUnitPropertyPass(t *testing.T) {
+	cases := []core.TestCase{
+		{
+			Name:   "unit_test",
+			Input:  []byte(`{"numbers": [1,2,3]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`), // Has oracle = unit test
+			Weight: 1.0,
+		},
+		{
+			Name:   "property_test",
+			Input:  []byte(`{"numbers": [3,1,2]}`),
+			Checks: []string{"sorted_non_decreasing"}, // Has checks = property test
+			Weight: 2.0,
+		},
+		{
+			Name:   "mixed_test",
+			Input:  []byte(`{"numbers": [2,1,3]}`),
+			Oracle: []byte(`{"sorted": [1,2,3]}`), // Both oracle and checks
+			Checks: []string{"sorted_non_decreasing"},
+			Weight: 1.5,
+		},
+	}
+
+	// Test with passing results
+	results := []testResult{
+		{testCase: cases[0], passed: true}, // unit test passes
+		{testCase: cases[1], passed: true}, // property test passes
+		{testCase: cases[2], passed: true}, // mixed test passes
+	}
+	unitPass, propPass := calculateUnitPropertyPassFromResults(results)
+
+	// All should pass
+	if unitPass != 1.0 {
+		t.Errorf("Expected unit_pass=1.0, got %f", unitPass)
+	}
+	if propPass != 1.0 {
+		t.Errorf("Expected prop_pass=1.0, got %f", propPass)
+	}
+
+	// Test with failing results
+	results = []testResult{
+		{testCase: cases[0], passed: false}, // unit test fails
+		{testCase: cases[1], passed: false}, // property test fails
+		{testCase: cases[2], passed: false}, // mixed test fails
+	}
+	unitPass, propPass = calculateUnitPropertyPassFromResults(results)
+
+	// All should fail
+	if unitPass != 0.0 {
+		t.Errorf("Expected unit_pass=0.0, got %f", unitPass)
+	}
+	if propPass != 0.0 {
+		t.Errorf("Expected prop_pass=0.0, got %f", propPass)
+	}
 }

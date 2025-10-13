@@ -7,10 +7,37 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Default maximum code size in bytes (64KB)
 const DefaultMaxCodeBytes = 64 * 1024
+
+// Security limits
+const (
+	MaxIdentifierLength = 100
+	MaxLiteralLength    = 1000
+	MaxStringLength     = 10000
+)
+
+// Allowed function names for CALL operations
+var allowedFunctions = map[string]bool{
+	// Built-in functions
+	"split":     true,
+	"merge":     true,
+	"sorted?":   true,
+	"permutes?": true,
+	"len":       true,
+	"concat":    true,
+	"map":       true,
+	"filter":    true,
+	// Control flow
+	"if":     true,
+	"let":    true,
+	"return": true,
+	"loop":   true,
+	"assert": true,
+}
 
 // Validate performs comprehensive validation of a HypothesisDesign
 func Validate(h HypothesisDesign) error {
@@ -99,6 +126,13 @@ func validateCode(code struct {
 	if code.Lang == "wasm" {
 		if err := validateWasmCode(code.Src); err != nil {
 			return fmt.Errorf("wasm code validation failed: %w", err)
+		}
+	}
+
+	// For af-dsl, validate security constraints
+	if code.Lang == "af-dsl" {
+		if err := validateAFDSLSecurity(code.Src); err != nil {
+			return fmt.Errorf("af-dsl security validation failed: %w", err)
 		}
 	}
 
@@ -217,4 +251,244 @@ func getMaxCodeBytes() int {
 		}
 	}
 	return DefaultMaxCodeBytes
+}
+
+// validateAFDSLSecurity performs security validation on AF-DSL code
+func validateAFDSLSecurity(src string) error {
+	// Check for valid UTF-8 encoding
+	if !utf8.ValidString(src) {
+		return errors.New("code contains invalid UTF-8 characters")
+	}
+
+	// Parse and validate the S-expression structure
+	return validateSExpression(src)
+}
+
+// validateSExpression validates S-expression structure and security constraints
+func validateSExpression(src string) error {
+	// Tokenize the input
+	tokens, err := tokenizeSExpression(src)
+	if err != nil {
+		return fmt.Errorf("failed to tokenize S-expression: %w", err)
+	}
+
+	// Validate tokens for security constraints
+	for i, token := range tokens {
+		if err := validateToken(token, i); err != nil {
+			return fmt.Errorf("token validation failed at position %d: %w", i, err)
+		}
+	}
+
+	// Check for balanced parentheses
+	if err := validateBalancedParentheses(tokens); err != nil {
+		return fmt.Errorf("parentheses validation failed: %w", err)
+	}
+
+	// Check for unknown function calls
+	if err := validateFunctionCalls(tokens); err != nil {
+		return fmt.Errorf("function call validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// Token represents a token in the S-expression
+type Token struct {
+	Type  TokenType
+	Value string
+}
+
+type TokenType int
+
+const (
+	TokenOpenParen TokenType = iota
+	TokenCloseParen
+	TokenSymbol
+	TokenString
+	TokenNumber
+	TokenBoolean
+)
+
+// tokenizeSExpression tokenizes an S-expression string
+func tokenizeSExpression(src string) ([]Token, error) {
+	var tokens []Token
+	runes := []rune(src)
+
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		// Skip whitespace
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+
+		switch r {
+		case '(':
+			tokens = append(tokens, Token{Type: TokenOpenParen, Value: "("})
+		case ')':
+			tokens = append(tokens, Token{Type: TokenCloseParen, Value: ")"})
+		case '"':
+			// String literal
+			start := i
+			i++ // Skip opening quote
+			for i < len(runes) && runes[i] != '"' {
+				if runes[i] == '\\' && i+1 < len(runes) {
+					i++ // Skip escaped character
+				}
+				i++
+			}
+			if i >= len(runes) {
+				return nil, fmt.Errorf("unterminated string literal at position %d", start)
+			}
+			tokens = append(tokens, Token{Type: TokenString, Value: string(runes[start : i+1])})
+		default:
+			// Symbol, number, or boolean
+			start := i
+			for i < len(runes) && runes[i] != ' ' && runes[i] != '\t' && runes[i] != '\n' && runes[i] != '\r' && runes[i] != '(' && runes[i] != ')' {
+				i++
+			}
+			i-- // Back up one position
+
+			value := string(runes[start : i+1])
+
+			// Determine token type
+			if value == "true" || value == "false" {
+				tokens = append(tokens, Token{Type: TokenBoolean, Value: value})
+			} else if isNumber(value) {
+				tokens = append(tokens, Token{Type: TokenNumber, Value: value})
+			} else {
+				tokens = append(tokens, Token{Type: TokenSymbol, Value: value})
+			}
+		}
+	}
+
+	return tokens, nil
+}
+
+// isNumber checks if a string represents a number
+func isNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	// Check for integer
+	if _, err := strconv.Atoi(s); err == nil {
+		return true
+	}
+
+	// Check for float
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return true
+	}
+
+	return false
+}
+
+// validateToken validates a single token for security constraints
+func validateToken(token Token, position int) error {
+	switch token.Type {
+	case TokenString:
+		// Check string length
+		if len(token.Value) > MaxStringLength {
+			return fmt.Errorf("string literal too long: %d characters (max %d)", len(token.Value), MaxStringLength)
+		}
+
+		// Validate string content (no null bytes, control characters)
+		content := token.Value[1 : len(token.Value)-1] // Remove quotes
+		for _, r := range content {
+			if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+				return fmt.Errorf("string contains invalid control character: %d", r)
+			}
+		}
+
+	case TokenSymbol:
+		// Check identifier length
+		if len(token.Value) > MaxIdentifierLength {
+			return fmt.Errorf("identifier too long: %d characters (max %d)", len(token.Value), MaxIdentifierLength)
+		}
+
+		// Check for valid identifier characters
+		if !isValidIdentifier(token.Value) {
+			return fmt.Errorf("invalid identifier: %s", token.Value)
+		}
+
+	case TokenNumber:
+		// Check number length
+		if len(token.Value) > MaxLiteralLength {
+			return fmt.Errorf("number literal too long: %d characters (max %d)", len(token.Value), MaxLiteralLength)
+		}
+	}
+
+	return nil
+}
+
+// isValidIdentifier checks if a string is a valid identifier
+func isValidIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	// Must start with letter or allowed symbol
+	first := s[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_' || first == '?' || first == '!') {
+		return false
+	}
+
+	// Rest must be letters, digits, or allowed symbols
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '?' || c == '!' || c == '-') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateBalancedParentheses checks if parentheses are balanced
+func validateBalancedParentheses(tokens []Token) error {
+	balance := 0
+	for _, token := range tokens {
+		switch token.Type {
+		case TokenOpenParen:
+			balance++
+		case TokenCloseParen:
+			balance--
+			if balance < 0 {
+				return errors.New("unbalanced parentheses: closing without opening")
+			}
+		}
+	}
+
+	if balance != 0 {
+		return errors.New("unbalanced parentheses: unclosed expressions")
+	}
+
+	return nil
+}
+
+// validateFunctionCalls checks that all function calls use allowed functions
+func validateFunctionCalls(tokens []Token) error {
+	for i, token := range tokens {
+		if token.Type == TokenSymbol && token.Value == "call" {
+			// Find the function name (next symbol after "call")
+			if i+2 < len(tokens) && tokens[i+1].Type == TokenOpenParen {
+				// Look for the function name in the call expression
+				for j := i + 2; j < len(tokens); j++ {
+					if tokens[j].Type == TokenSymbol {
+						funcName := tokens[j].Value
+						if !allowedFunctions[funcName] {
+							return fmt.Errorf("unknown function call: %s (not in allowed list)", funcName)
+						}
+						break
+					}
+					if tokens[j].Type == TokenCloseParen {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }

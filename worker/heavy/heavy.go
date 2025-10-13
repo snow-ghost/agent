@@ -2,30 +2,35 @@ package heavy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
-	llmmock "github.com/snow-ghost/agent/llm/mock"
+	"github.com/snow-ghost/agent/design"
+	"github.com/snow-ghost/agent/dsl"
+	"github.com/snow-ghost/agent/pkg/llm/client"
+	"github.com/snow-ghost/agent/prompts"
 	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/common"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
 
-// HeavyWorker implements the heavy worker type with LLM+WASM capabilities
+// HeavyWorker implements the heavy worker type with design-based capabilities
 type HeavyWorker struct {
 	*common.BaseWorker
-	llm     core.LLMClient
-	interp  core.Interpreter
-	tests   core.TestRunner
-	fitness core.FitnessEvaluator
-	critic  core.Critic
-	mut     core.Mutator
+	designer client.Designer
+	tests    core.TestRunner
+	fitness  core.FitnessEvaluator
+	critic   core.Critic
+	mut      core.Mutator
 }
 
 // NewHeavyWorker creates a new heavy worker
-func NewHeavyWorker(kb core.KnowledgeBase, llm core.LLMClient, interp core.Interpreter,
+func NewHeavyWorker(kb core.KnowledgeBase, designer client.Designer,
 	tests core.TestRunner, fitness core.FitnessEvaluator, critic core.Critic,
 	mut core.Mutator, telemetry *telemetry.Telemetry) *HeavyWorker {
 
@@ -33,8 +38,7 @@ func NewHeavyWorker(kb core.KnowledgeBase, llm core.LLMClient, interp core.Inter
 
 	return &HeavyWorker{
 		BaseWorker: baseWorker,
-		llm:        llm,
-		interp:     interp,
+		designer:   designer,
 		tests:      tests,
 		fitness:    fitness,
 		critic:     critic,
@@ -47,7 +51,7 @@ func (h *HeavyWorker) Caps() capabilities.Capabilities {
 	return capabilities.DefaultCapabilities("heavy")
 }
 
-// Solve processes a task using the full heavy worker pipeline
+// Solve processes a task using the design-based heavy worker pipeline
 func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, error) {
 	start := time.Now()
 	h.LogTaskStart(ctx, task)
@@ -63,109 +67,212 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 		return result, nil
 	}
 
-	// 2) Request LLM (algorithm, tests, criteria)
-	slog.InfoContext(ctx, "requesting LLM proposal", "task_id", task.ID)
+	// 2) Build user JSON and request design
+	slog.InfoContext(ctx, "building user task JSON", "task_id", task.ID, "stage", "llm_design")
 
-	// Generate caller for cost tracking
-	caller := fmt.Sprintf("worker/%s/%s", task.Domain, task.ID)
-
-	algo, tests, criteria, err := h.llm.ProposeWithCaller(ctx, task, caller)
+	// Build user JSON from task
+	userJSON, err := h.buildUserTaskJSON(task)
 	if err != nil {
-		slog.ErrorContext(ctx, "LLM proposal failed", "error", err, "task_id", task.ID, "caller", caller)
+		slog.ErrorContext(ctx, "failed to build user task JSON", "error", err, "task_id", task.ID)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
 		return core.Result{Success: false}, err
 	}
 
-	// Convert algorithm string to WASM bytecode
-	var wasmBytes []byte
-	if mockLLM, ok := h.llm.(*llmmock.MockLLM); ok {
-		wasmBytes, err = mockLLM.GetWASMModule(algo)
+	// Request design from Designer
+	slog.InfoContext(ctx, "requesting design", "task_id", task.ID, "stage", "llm_design")
+	hd, _, err := h.designer.Design(ctx, userJSON)
+	if err != nil {
+		slog.ErrorContext(ctx, "design request failed", "error", err, "task_id", task.ID)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
+		return core.Result{Success: false}, err
+	}
+
+	// 3) Validate design
+	slog.InfoContext(ctx, "validating design", "task_id", task.ID, "stage", "dsl_parse")
+	if err := design.Validate(hd); err != nil {
+		slog.ErrorContext(ctx, "design validation failed", "error", err, "task_id", task.ID)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
+		return core.Result{Success: false}, fmt.Errorf("design validation failed: %w", err)
+	}
+
+	// Check if design indicates cannot_solve
+	if hd.Status == "cannot_solve" {
+		slog.InfoContext(ctx, "design indicates cannot solve", "task_id", task.ID, "reason", hd.Status)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false, Logs: "design_cannot_solve"}, time.Since(start), 0)
+		return core.Result{Success: false, Logs: "design_cannot_solve"}, nil
+	}
+
+	// 4) Convert to hypothesis and test cases
+	hypothesis, err := design.ToHypothesis(hd)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to convert design to hypothesis", "error", err, "task_id", task.ID)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
+		return core.Result{Success: false}, err
+	}
+
+	unitTests := design.ToTestCases(hd)
+	slog.InfoContext(ctx, "converted design", "task_id", task.ID, "lang", hypothesis.Lang, "unit_tests", len(unitTests))
+
+	// 5) Generate property test cases if property plan exists
+	var allTests []core.TestCase
+	allTests = append(allTests, unitTests...)
+
+	if len(hd.Tests.Property) > 0 {
+		slog.InfoContext(ctx, "generating property test cases", "task_id", task.ID, "stage", "tests")
+		propK := h.getPropertyTestCount()
+		propTests := h.generatePropertyTests(hd.Tests.Property, propK)
+		allTests = append(allTests, propTests...)
+		slog.InfoContext(ctx, "generated property tests", "task_id", task.ID, "count", len(propTests))
+	}
+
+	// 6) Get appropriate interpreter based on language
+	interpreter, err := h.getInterpreter(hypothesis.Lang)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get interpreter", "error", err, "task_id", task.ID, "lang", hypothesis.Lang)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
+		return core.Result{Success: false}, err
+	}
+
+	// 7) Run tests and evaluate fitness
+	slog.InfoContext(ctx, "running tests", "task_id", task.ID, "stage", "tests")
+	metrics, pass, err := h.tests.Run(ctx, hypothesis, allTests, interpreter)
+	if err != nil {
+		slog.ErrorContext(ctx, "test run failed", "error", err, "task_id", task.ID)
+		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
+		return core.Result{Success: false}, err
+	}
+
+	// 8) Evaluate fitness and compare with PassThreshold
+	slog.InfoContext(ctx, "evaluating fitness", "task_id", task.ID, "stage", "fitness")
+	fitness := core.NewFitnessFromDesign(hypothesis.Meta)
+	score := fitness.Score(task, metrics, len(hypothesis.Bytes))
+	passThreshold, _ := strconv.ParseFloat(hypothesis.Meta["pass_threshold"], 64)
+	passed := fitness.Passed(score, passThreshold)
+
+	slog.InfoContext(ctx, "fitness evaluation complete", "task_id", task.ID,
+		"score", score, "threshold", passThreshold, "passed", passed)
+
+	// 9) If passed, execute and save as artifact
+	if passed {
+		slog.InfoContext(ctx, "fitness threshold passed, executing solution", "task_id", task.ID)
+		res, err := interpreter.Execute(ctx, hypothesis, task)
 		if err != nil {
-			slog.ErrorContext(ctx, "failed to get WASM module", "error", err, "task_id", task.ID)
+			slog.ErrorContext(ctx, "solution execution failed", "error", err, "task_id", task.ID)
 			h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
 			return core.Result{Success: false}, err
 		}
-	} else {
-		// For other LLM implementations, assume algo is already bytecode
-		wasmBytes = []byte(algo)
-	}
 
-	hypothesis := core.Hypothesis{ID: "llm-0", Source: "llm", Lang: "wasm", Bytes: wasmBytes, Meta: map[string]string{"criteria": "set"}}
-	slog.InfoContext(ctx, "LLM proposal received", "tests_count", len(tests), "wasm_size", len(wasmBytes), "task_id", task.ID)
-
-	// 3) Evolutionary mini-cycle
-	best := hypothesis
-	bestScore := -1.0
-	deadline := time.Now().Add(task.Budget.Timeout)
-	slog.InfoContext(ctx, "starting evolution", "deadline", deadline, "task_id", task.ID)
-
-	iterations := 0
-	timeoutReached := false
-	for time.Now().Before(deadline) {
-		iterations++
-		candidates := append([]core.Hypothesis{hypothesis}, h.mut.Mutate(best)...)
-		for _, c := range candidates {
-			// attach criteria to task spec for checks
-			task.Spec.SuccessCriteria = criteria
-			metrics, pass, _ := h.tests.Run(ctx, c, tests, h.interp)
-			score := h.fitness.Score(task, metrics, len(c.Bytes))
-			if pass && score > bestScore {
-				best, bestScore = c, score
-			}
-			ok, _ := h.critic.Accept(task, metrics)
-			if ok {
-				res, err := h.interp.Execute(ctx, c, task)
-				if err == nil && res.Success {
-					_ = h.GetKB().SaveHypothesis(ctx, c, score)
-					h.LogTaskEnd(ctx, task, res, time.Since(start), iterations)
-					return res, nil
-				}
-			}
-		}
-	}
-	timeoutReached = true
-
-	// If we found a good hypothesis, try to execute it and save it
-	if bestScore > 0 {
-		res, err := h.interp.Execute(ctx, best, task)
-		if err == nil && res.Success {
-			_ = h.GetKB().SaveHypothesis(ctx, best, bestScore)
-			h.LogTaskEnd(ctx, task, res, time.Since(start), iterations)
+		if res.Success {
+			// Save as artifact in KB
+			_ = h.GetKB().SaveHypothesis(ctx, hypothesis, score)
+			slog.InfoContext(ctx, "solution saved as artifact", "task_id", task.ID, "score", score)
+			h.LogTaskEnd(ctx, task, res, time.Since(start), 1)
 			return res, nil
 		}
-		// Best hypothesis failed to execute
-		failureReason := "best_hypothesis_execution_failed"
-		if err != nil {
-			failureReason = "best_hypothesis_execution_error"
-		}
-		h.LogTaskEnd(ctx, task, core.Result{
-			Success: false,
-			Logs:    failureReason + ": " + err.Error(),
-		}, time.Since(start), iterations)
-		return core.Result{
-			Success: false,
-			Logs:    failureReason,
-		}, nil
 	}
 
-	// Determine failure reason
-	var failureReason string
-	if timeoutReached {
-		if bestScore > 0 {
-			failureReason = "timeout_with_partial_solution"
-		} else {
-			failureReason = "timeout_no_solution"
-		}
-	} else {
-		failureReason = "no_suitable_hypothesis_found"
+	// 10) If not passed or execution failed, return failure
+	failureReason := "fitness_threshold_not_met"
+	if !pass {
+		failureReason = "tests_failed"
 	}
 
-	h.LogTaskEnd(ctx, task, core.Result{
-		Success: false,
-		Logs:    failureReason,
-	}, time.Since(start), iterations)
-	return core.Result{
-		Success: false,
-		Logs:    failureReason,
-	}, nil
+	slog.InfoContext(ctx, "task failed", "task_id", task.ID, "reason", failureReason, "score", score)
+	h.LogTaskEnd(ctx, task, core.Result{Success: false, Logs: failureReason}, time.Since(start), 1)
+	return core.Result{Success: false, Logs: failureReason}, nil
+}
+
+// buildUserTaskJSON builds user task JSON from core.Task
+func (h *HeavyWorker) buildUserTaskJSON(task core.Task) (string, error) {
+	// Extract input/output schemas from task spec props
+	inSchema := "{}"
+	outSchema := "{}"
+
+	if inputSchema, ok := task.Spec.Props["input_schema"]; ok {
+		inSchema = inputSchema
+	}
+	if outputSchema, ok := task.Spec.Props["output_schema"]; ok {
+		outSchema = outputSchema
+	}
+
+	// Build examples from task spec props if available
+	var examples []map[string]string
+	if examplesStr, ok := task.Spec.Props["examples"]; ok {
+		// Parse examples from JSON string
+		var exampleList []map[string]interface{}
+		if err := json.Unmarshal([]byte(examplesStr), &exampleList); err == nil {
+			for _, example := range exampleList {
+				exampleMap := make(map[string]string)
+				for k, v := range example {
+					exampleMap[k] = fmt.Sprintf("%v", v)
+				}
+				examples = append(examples, exampleMap)
+			}
+		}
+	}
+
+	// Build options
+	opts := prompts.BuildOpts{
+		TimeoutMS:     int(task.Budget.Timeout.Milliseconds()),
+		MemMB:         task.Budget.MemMB,
+		MaxComplexity: "medium",
+	}
+
+	return prompts.BuildUserTaskJSON(
+		task.ID,
+		task.Domain,
+		task.Description,
+		inSchema,
+		outSchema,
+		examples,
+		opts,
+	), nil
+}
+
+// getPropertyTestCount gets the number of property tests to generate from environment
+func (h *HeavyWorker) getPropertyTestCount() int {
+	if propK := os.Getenv("PROP_K"); propK != "" {
+		if k, err := strconv.Atoi(propK); err == nil && k > 0 {
+			return k
+		}
+	}
+	return 64 // default
+}
+
+// generatePropertyTests generates property test cases from property plans
+func (h *HeavyWorker) generatePropertyTests(propertyPlans []struct {
+	Name      string   `json:"name"`
+	Generator string   `json:"generator"`
+	Checks    []string `json:"checks"`
+}, count int) []core.TestCase {
+	var testCases []core.TestCase
+
+	for _, plan := range propertyPlans {
+		// Generate test cases using the property test framework
+		// This is a simplified implementation - in practice you'd use the full property test framework
+		for i := 0; i < count/len(propertyPlans); i++ {
+			testCase := core.TestCase{
+				Name:   fmt.Sprintf("%s_prop_%d", plan.Name, i),
+				Input:  []byte(fmt.Sprintf(`{"generator": "%s"}`, plan.Generator)),
+				Checks: plan.Checks,
+				Weight: 1.0,
+			}
+			testCases = append(testCases, testCase)
+		}
+	}
+
+	return testCases
+}
+
+// getInterpreter returns the appropriate interpreter based on language
+func (h *HeavyWorker) getInterpreter(lang string) (core.Interpreter, error) {
+	switch lang {
+	case "af-dsl":
+		return dsl.NewAFDSLInterpreter(nil), nil
+	case "wasm":
+		// TODO: Return actual WASM interpreter when available
+		return nil, fmt.Errorf("WASM interpreter not yet implemented")
+	default:
+		return nil, fmt.Errorf("unsupported language: %s", lang)
+	}
 }

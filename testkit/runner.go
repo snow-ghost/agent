@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
@@ -44,9 +45,15 @@ func (r *Runner) Run(ctx context.Context, h core.Hypothesis, cases []core.TestCa
 		"cases_passed":      0,
 		"cases_failed":      0,
 		"duration_ms_total": 0,
+		"passed_weight":     0,
+		"total_weight":      0,
+		"unit_pass":         0,
+		"prop_pass":         0,
 	}
 
 	allPassed := true
+	var durations []float64
+	var testResults []testResult
 
 	for _, tc := range cases {
 		start := time.Now()
@@ -62,14 +69,22 @@ func (r *Runner) Run(ctx context.Context, h core.Hypothesis, cases []core.TestCa
 		durMs := float64(time.Since(start).Milliseconds())
 		metrics["duration_ms_total"] += durMs
 		metrics["cases_total"] += 1
+		metrics["total_weight"] += tc.Weight
 
 		passed := false
 		if err == nil {
 			passed = evaluateCase(tc, task, res)
 		}
 
+		// Track individual test results for unit/property calculation
+		testResults = append(testResults, testResult{
+			testCase: tc,
+			passed:   passed,
+		})
+
 		if passed {
 			metrics["cases_passed"] += 1
+			metrics["passed_weight"] += tc.Weight
 			workermetrics.ObserveTest(ctx, "pass", float64(time.Since(start).Seconds()))
 		} else {
 			metrics["cases_failed"] += 1
@@ -81,9 +96,37 @@ func (r *Runner) Run(ctx context.Context, h core.Hypothesis, cases []core.TestCa
 				workermetrics.ObserveTest(ctx, "fail", float64(time.Since(start).Seconds()))
 			}
 		}
+
+		durations = append(durations, durMs)
 	}
 
+	// Calculate correctness = passed_weight / total_weight
+	if metrics["total_weight"] > 0 {
+		metrics["correctness"] = metrics["passed_weight"] / metrics["total_weight"]
+	} else {
+		metrics["correctness"] = 0
+	}
+
+	// Calculate time score = 1/(1+avg_ms/ceil)
+	avgMs := metrics["duration_ms_total"] / float64(len(cases))
+	ceil := 1000.0 // 1 second ceiling
+	metrics["time"] = 1.0 / (1.0 + avgMs/ceil)
+
+	// Calculate size score = 1/(1+nodes) where nodes = AST node count
+	astNodes := countASTNodes(h.Bytes)
+	metrics["size"] = 1.0 / (1.0 + float64(astNodes))
+
+	// Calculate unit vs property pass rates
+	unitPass, propPass := calculateUnitPropertyPassFromResults(testResults)
+	metrics["unit_pass"] = unitPass
+	metrics["prop_pass"] = propPass
+
 	return metrics, allPassed, nil
+}
+
+type testResult struct {
+	testCase core.TestCase
+	passed   bool
 }
 
 // evaluateCase validates the output against the oracle and checks.
@@ -184,4 +227,60 @@ func checkPermutes(input, output []byte) bool {
 		}
 	}
 	return true
+}
+
+// countASTNodes estimates the number of AST nodes in the hypothesis bytecode
+func countASTNodes(bytes []byte) int {
+	// Simple heuristic: count parentheses and symbols in AF-DSL
+	content := string(bytes)
+	parens := strings.Count(content, "(") + strings.Count(content, ")")
+
+	// Split by spaces and parentheses to get individual tokens
+	// Replace parentheses with spaces, then split
+	normalized := strings.ReplaceAll(content, "(", " ")
+	normalized = strings.ReplaceAll(normalized, ")", " ")
+	words := strings.Fields(normalized)
+
+	return parens + len(words)
+}
+
+// calculateUnitPropertyPassFromResults calculates pass rates for unit vs property tests
+func calculateUnitPropertyPassFromResults(results []testResult) (float64, float64) {
+	unitPassed := 0.0
+	unitTotal := 0.0
+	propPassed := 0.0
+	propTotal := 0.0
+
+	for _, result := range results {
+		tc := result.testCase
+		// Determine if this is a unit test (has oracle) or property test (has checks)
+		isUnit := len(tc.Oracle) > 0
+		isProperty := len(tc.Checks) > 0
+
+		if isUnit {
+			unitTotal += tc.Weight
+			if result.passed {
+				unitPassed += tc.Weight
+			}
+		}
+
+		if isProperty {
+			propTotal += tc.Weight
+			if result.passed {
+				propPassed += tc.Weight
+			}
+		}
+	}
+
+	unitPass := 0.0
+	if unitTotal > 0 {
+		unitPass = unitPassed / unitTotal
+	}
+
+	propPass := 0.0
+	if propTotal > 0 {
+		propPass = propPassed / propTotal
+	}
+
+	return unitPass, propPass
 }
