@@ -113,9 +113,8 @@ func (s *Server) setupRoutes() {
 	loggingConfig := DefaultLoggingConfig()
 	loggingMiddleware := LoggingMiddleware(loggingConfig, s.logger)
 
-	// Health and metrics (no logging for these)
-	s.router.HandleFunc("/health", s.handleHealth)
-	s.router.HandleFunc("/metrics", s.handleMetrics)
+	// Note: health and metrics are exposed on a dedicated service port by the binary
+	// and are intentionally not registered on the API mux.
 
 	// API v1 routes with logging middleware
 	v1 := http.NewServeMux()
@@ -310,8 +309,8 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+// HandleHealth handles health check requests
+func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -322,8 +321,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"status":"ok","service":"llmrouter","timestamp":"%s"}`, time.Now().Format(time.RFC3339))
 }
 
-// handleMetrics handles metrics requests
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+// HandleMetrics handles metrics requests
+func (s *Server) HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

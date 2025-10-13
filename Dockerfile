@@ -37,11 +37,12 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Set working directory
 WORKDIR /
 
-# Expose port
-EXPOSE 8090
+# Expose ports (API and service)
+EXPOSE 9000
+EXPOSE 9001
 
 # Set environment variables
-ENV LLMROUTER_PORT=8090
+ENV LLMROUTER_PORT=9000
 ENV CONFIG=router.yaml
 
 # Health check

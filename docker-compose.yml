@@ -9,10 +9,11 @@ services:
       dockerfile: Dockerfile.worker
     container_name: light-worker
     ports:
-      - "8081:8081"
+      - "9004:9004" # API_PORT
+      - "9005:9005" # SERVICE_PORT (healthz/metrics)
     environment:
       - WORKER_TYPE=light
-      - WORKER_PORT=8081
+      - WORKER_PORT=9004
       - HYPOTHESES_DIR=/app/hypotheses
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ARTIFACTS_DIR=/app/artifacts
@@ -30,7 +31,7 @@ services:
       - agent_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9005/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -42,10 +43,11 @@ services:
       dockerfile: Dockerfile.worker
     container_name: heavy-worker
     ports:
-      - "8082:8082"
+      - "9002:9002" # API_PORT
+      - "9003:9003" # SERVICE_PORT (healthz/metrics)
     environment:
       - WORKER_TYPE=heavy
-      - WORKER_PORT=8082
+      - WORKER_PORT=9002
       - HYPOTHESES_DIR=/app/hypotheses
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LLM_MODE=${LLM_MODE:-router}
@@ -75,7 +77,7 @@ services:
       - llmrouter
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9003/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -87,12 +89,13 @@ services:
       dockerfile: Dockerfile.router
     container_name: router
     ports:
-      - "8083:8083"
+      - "9006:9006" # API_PORT
+      - "9007:9007" # SERVICE_PORT (healthz/metrics)
     environment:
-      - ROUTER_PORT=8083
+      - ROUTER_PORT=9006
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - LIGHT_WORKER_URL=http://light-worker:8081
-      - HEAVY_WORKER_URL=http://heavy-worker:8082
+      - LIGHT_WORKER_URL=http://light-worker:9004
+      - HEAVY_WORKER_URL=http://heavy-worker:9002
     volumes:
       - ./router.yaml:/app/router.yaml:ro
     networks:
@@ -102,7 +105,7 @@ services:
       - heavy-worker
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9007/healthz"]
       interval: 30s
       timeout: 10s
       
@@ -128,7 +131,8 @@ services:
       dockerfile: Dockerfile
     container_name: llmrouter
     ports:
-      - "8090:8090"
+      - "9000:9000" # API_PORT
+      - "9001:9001" # SERVICE_PORT (healthz/metrics)
     environment:
       # API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -141,7 +145,7 @@ services:
       - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://lmstudio:1234}
       
       # Service Configuration
-      - LLMROUTER_PORT=8090
+      - LLMROUTER_PORT=9000
       - CONFIG=/config/router.yaml
       
       # Logging
@@ -177,7 +181,7 @@ services:
       - llmrouter_logs:/logs
       
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9001/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3

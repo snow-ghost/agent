@@ -37,11 +37,12 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Set working directory
 WORKDIR /
 
-# Expose port
-EXPOSE 8081
+# Expose ports (API and service)
+EXPOSE 9002
+EXPOSE 9003
 
 # Set environment variables
-ENV WORKER_PORT=8081
+ENV WORKER_PORT=9002
 ENV WORKER_TYPE=light
 
 # Health check

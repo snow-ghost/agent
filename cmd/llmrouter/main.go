@@ -4,11 +4,14 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/ports"
 	"github.com/snow-ghost/agent/pkg/router/httpserver"
 )
 
@@ -21,7 +24,7 @@ type LLMRouterConfig struct {
 // LoadLLMRouterConfig loads LLM router configuration from environment variables
 func LoadLLMRouterConfig() *LLMRouterConfig {
 	return &LLMRouterConfig{
-		Port:     getEnv("LLMROUTER_PORT", "8090"),
+		Port:     getEnv("LLMROUTER_PORT", "9000"),
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 }
@@ -79,17 +82,42 @@ func main() {
 	// Log loaded configuration
 	config.LogConfig(logger)
 
-	// Create and start server
+	// Validate and derive ports
+	apiPort, err := strconv.Atoi(config.Port)
+	if err != nil {
+		log.Fatal("invalid LLMROUTER_PORT, must be integer:", err)
+	}
+	if err := ports.ValidateAPIPort(apiPort); err != nil {
+		log.Fatal("invalid API port:", err)
+	}
+	servicePort, err := ports.DeriveServicePort(apiPort)
+	if err != nil {
+		log.Fatal("invalid derived service port:", err)
+	}
+
+	// Create and start API server
 	server := httpserver.NewServer(config.Port, logger)
 
 	logger.Info("starting LLM router service",
 		"port", config.Port,
 		"log_level", config.LogLevel)
 
-	// Start server with graceful shutdown
+	// Start API server with graceful shutdown
 	if err := server.StartWithGracefulShutdown(); err != nil {
 		log.Fatal("failed to start server:", err)
 	}
+
+	// Start service server exposing /healthz and /metrics on API_PORT+1
+	serviceMux := http.NewServeMux()
+	serviceMux.HandleFunc("/healthz", server.HandleHealth)
+	serviceMux.HandleFunc("/metrics", server.HandleMetrics)
+	serviceSrv := &http.Server{Addr: ":" + strconv.Itoa(servicePort), Handler: serviceMux}
+	go func() {
+		logger.Info("starting service endpoints", "port", servicePort)
+		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("service endpoints server failed", "error", err)
+		}
+	}()
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -102,7 +130,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Shutdown server
+	// Shutdown servers
+	if err := serviceSrv.Shutdown(ctx); err != nil {
+		logger.Error("LLM router service server shutdown failed", "error", err)
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("LLM router server shutdown failed", "error", err)
 	} else {

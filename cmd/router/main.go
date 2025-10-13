@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	"github.com/snow-ghost/agent/pkg/ports"
 )
 
 // RouterConfig holds configuration for the router
@@ -27,9 +28,9 @@ type RouterConfig struct {
 // LoadRouterConfig loads router configuration from environment variables
 func LoadRouterConfig() *RouterConfig {
 	return &RouterConfig{
-		LightWorkerURL:      getEnv("LIGHT_WORKER_URL", "http://localhost:8081"),
-		HeavyWorkerURL:      getEnv("HEAVY_WORKER_URL", "http://localhost:8082"),
-		Port:                getEnv("ROUTER_PORT", "8080"),
+		LightWorkerURL:      getEnv("LIGHT_WORKER_URL", "http://localhost:9004"),
+		HeavyWorkerURL:      getEnv("HEAVY_WORKER_URL", "http://localhost:9002"),
+		Port:                getEnv("ROUTER_PORT", "9006"),
 		ComplexityThreshold: getEnvInt("COMPLEXITY_THRESHOLD", 5),
 	}
 }
@@ -319,13 +320,28 @@ func main() {
 	// Log loaded configuration
 	config.LogConfig(logger)
 
+	// Validate router API port
+	apiPort, err := strconv.Atoi(config.Port)
+	if err != nil {
+		logger.Error("invalid ROUTER_PORT", "error", err)
+		os.Exit(1)
+	}
+	if err := ports.ValidateAPIPort(apiPort); err != nil {
+		logger.Error("router API port invalid", "error", err)
+		os.Exit(1)
+	}
+	servicePort, err := ports.DeriveServicePort(apiPort)
+	if err != nil {
+		logger.Error("router service port invalid", "error", err)
+		os.Exit(1)
+	}
+
 	// Create router
 	router := NewRouter(config)
 
-	// Setup routes
+	// Setup API routes
 	mux := http.NewServeMux()
 	mux.Handle("/solve", http.HandlerFunc(router.SolveHandler))
-	mux.Handle("/health", http.HandlerFunc(router.HealthHandler))
 	mux.Handle("/caps", http.HandlerFunc(router.CapsHandler))
 	mux.Handle("/ready", http.HandlerFunc(router.ReadyHandler))
 
@@ -349,6 +365,22 @@ func main() {
 		}
 	}()
 
+	// Service endpoints server on API_PORT+1
+	serviceMux := http.NewServeMux()
+	serviceMux.Handle("/healthz", http.HandlerFunc(router.HealthHandler))
+	serviceMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "router_requests_total 0")
+	})
+	serviceSrv := &http.Server{Addr: ":" + strconv.Itoa(servicePort), Handler: serviceMux}
+	go func() {
+		logger.Info("router service endpoints starting", "addr", serviceSrv.Addr)
+		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("router service endpoints failed", "error", err)
+		}
+	}()
+
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -360,7 +392,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Shutdown server
+	// Shutdown servers
+	if err := serviceSrv.Shutdown(ctx); err != nil {
+		logger.Error("router service endpoints shutdown failed", "error", err)
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("router server shutdown failed", "error", err)
 	} else {

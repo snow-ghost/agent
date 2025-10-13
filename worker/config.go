@@ -29,7 +29,7 @@ type Config struct {
 func LoadConfig() *Config {
 	config := &Config{
 		WorkerType:       getEnv("WORKER_TYPE", "heavy"),
-		WorkerPort:       getEnv("WORKER_PORT", "8081"),
+		WorkerPort:       getEnv("WORKER_PORT", ""),
 		LLMMode:          getEnv("LLM_MODE", "mock"),
 		PolicyAllowTools: parseCommaSeparated(getEnv("POLICY_ALLOW_TOOLS", "example.com,api.example.com")),
 		SandboxMemMB:     getEnvInt("SANDBOX_MEM_MB", 4),
@@ -42,6 +42,15 @@ func LoadConfig() *Config {
 		LLMRouterURL: getEnv("LLM_ROUTER_URL", "http://llmrouter:8090"),
 		DefaultModel: getEnv("DEFAULT_MODEL", "openai:gpt-4o-mini"),
 		ModelTag:     getEnv("MODEL_TAG", "general"),
+	}
+
+	// If port not provided, choose default by worker type per policy
+	if config.WorkerPort == "" {
+		if config.WorkerType == "light" {
+			config.WorkerPort = "9004"
+		} else {
+			config.WorkerPort = "9002"
+		}
 	}
 
 	return config

@@ -5,17 +5,24 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
 // healthcheck performs a health check on the LLM router
 func healthcheck() {
-	port := os.Getenv("LLMROUTER_PORT")
-	if port == "" {
-		port = "8090"
+	portStr := os.Getenv("LLMROUTER_PORT")
+	if portStr == "" {
+		portStr = "9000"
 	}
+	apiPort, err := strconv.Atoi(portStr)
+	if err != nil {
+		fmt.Printf("Invalid LLMROUTER_PORT: %v\n", err)
+		os.Exit(1)
+	}
+	servicePort := apiPort + 1
 
-	url := fmt.Sprintf("http://localhost:%s/health", port)
+	url := fmt.Sprintf("http://localhost:%d/healthz", servicePort)
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,

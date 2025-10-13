@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/snow-ghost/agent/pkg/ports"
 	"github.com/snow-ghost/agent/worker"
 	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/telemetry"
@@ -46,7 +48,23 @@ func main() {
 	// Create ingestor
 	ing := worker.NewIngestor(workerInstance.Solve)
 
-	// Setup HTTP routes
+	// Validate API port and compute service port
+	apiPort, err := strconv.Atoi(config.WorkerPort)
+	if err != nil {
+		logger.Error("invalid WORKER_PORT", "error", err)
+		os.Exit(1)
+	}
+	if err := ports.ValidateAPIPort(apiPort); err != nil {
+		logger.Error("worker API port invalid", "error", err)
+		os.Exit(1)
+	}
+	servicePort, err := ports.DeriveServicePort(apiPort)
+	if err != nil {
+		logger.Error("worker service port invalid", "error", err)
+		os.Exit(1)
+	}
+
+	// Setup HTTP routes (API)
 	mux := http.NewServeMux()
 	mux.Handle("/solve", ing)
 
@@ -74,8 +92,7 @@ func main() {
 		}
 	}
 
-	mux.Handle("/health", telemetryHandler)
-	mux.Handle("/metrics", metricsHandler)
+	// Health and metrics will be exposed on a separate service port
 	mux.Handle("/caps", http.HandlerFunc(createCapsHandler(workerInstance)))
 	mux.Handle("/ready", http.HandlerFunc(createReadyHandler(workerInstance)))
 
@@ -100,6 +117,18 @@ func main() {
 		}
 	}()
 
+	// Service endpoints on API_PORT+1
+	serviceMux := http.NewServeMux()
+	serviceMux.Handle("/healthz", telemetryHandler)
+	serviceMux.Handle("/metrics", metricsHandler)
+	serviceSrv := &http.Server{Addr: ":" + strconv.Itoa(servicePort), Handler: serviceMux}
+	go func() {
+		logger.Info("worker service endpoints starting", "addr", serviceSrv.Addr)
+		if err := serviceSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("worker service endpoints failed", "error", err)
+		}
+	}()
+
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -111,7 +140,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Shutdown server
+	// Shutdown servers
+	if err := serviceSrv.Shutdown(ctx); err != nil {
+		logger.Error("worker service endpoints shutdown failed", "error", err)
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("worker server shutdown failed", "error", err)
 	} else {
