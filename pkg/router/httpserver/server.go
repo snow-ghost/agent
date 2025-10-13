@@ -250,7 +250,7 @@ func (s *Server) Start() error {
 
 	// Create HTTP server with extended timeouts for LLM requests
 	s.httpServer = &http.Server{
-		Addr:         ":" + s.port,
+		Addr:         "0.0.0.0:" + s.port,
 		Handler:      s.router,
 		ReadTimeout:  10 * time.Minute, // 10 minutes for reading request
 		WriteTimeout: 10 * time.Minute, // 10 minutes for writing response
@@ -266,7 +266,7 @@ func (s *Server) StartWithGracefulShutdown() error {
 
 	// Create HTTP server with extended timeouts for LLM requests
 	s.httpServer = &http.Server{
-		Addr:         ":" + s.port,
+		Addr:         "0.0.0.0:" + s.port,
 		Handler:      s.router,
 		ReadTimeout:  10 * time.Minute, // 10 minutes for reading request
 		WriteTimeout: 10 * time.Minute, // 10 minutes for writing response

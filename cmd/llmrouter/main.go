@@ -106,8 +106,7 @@ func main() {
 	llmmetrics.Init()
 
 	// Create API server
-	apiAddr := "0.0.0.0:" + strconv.Itoa(apiPort)
-	server := httpserver.NewServer(apiAddr, logger)
+	server := httpserver.NewServer(strconv.Itoa(apiPort), logger)
 
 	// Create service/metrics server
 	metricsPath := os.Getenv("METRICS_PATH")

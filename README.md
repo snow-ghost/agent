@@ -69,8 +69,19 @@ The agent can be configured using environment variables:
 | `HYPOTHESES_DIR` | `./hypotheses` | Directory for saving successful hypotheses |
 | `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 
+#### Metrics Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `METRICS_MODE` | `prom` | Metrics mode: `prom` (Prometheus) or `otel` (OpenTelemetry) |
+| `METRICS_PATH` | `/metrics` | Metrics endpoint path |
+| `SERVICE_NAME` | `agent` | Service name for metrics |
+| `METRICS_NAMESPACE` | `agent` | Metrics namespace prefix |
+| `METRICS_COLLECT_RUNTIME` | `true` | Collect Go runtime metrics |
+
 ### Example Configuration
 
+**Basic Configuration:**
 ```bash
 export WORKER_PORT=9002
 export LLM_MODE=mock
@@ -79,6 +90,27 @@ export SANDBOX_MEM_MB=8
 export TASK_TIMEOUT=60s
 export HYPOTHESES_DIR="/var/lib/agent/hypotheses"
 export LOG_LEVEL=debug
+
+# Metrics configuration
+export METRICS_MODE=prom
+export SERVICE_NAME=agent-worker
+export METRICS_NAMESPACE=agent
+export METRICS_COLLECT_RUNTIME=true
+
+./worker
+```
+
+**OpenTelemetry Configuration:**
+```bash
+export WORKER_PORT=9002
+export LLM_MODE=mock
+export LOG_LEVEL=info
+
+# OpenTelemetry metrics
+export METRICS_MODE=otel
+export SERVICE_NAME=agent-worker
+export METRICS_NAMESPACE=agent
+export METRICS_COLLECT_RUNTIME=true
 
 ./worker
 ```
@@ -200,23 +232,174 @@ Response:
 
 ### Metrics
 
+The system provides comprehensive metrics in both Prometheus and OpenTelemetry formats.
+
+#### Accessing Metrics
+
+**LLM Router:**
+```bash
+curl http://localhost:9001/metrics
+```
+
 **Router:**
 ```bash
 curl http://localhost:9007/metrics
 ```
 
-**Worker:**
+**Workers:**
 ```bash
-curl http://localhost:9005/metrics
+curl http://localhost:9005/metrics  # Light worker
+curl http://localhost:9003/metrics  # Heavy worker
 ```
 
-Returns Prometheus-compatible metrics including:
-- `tasks_total` - Total tasks processed
-- `tasks_solved` - Successfully solved tasks
-- `tasks_failed` - Failed tasks
-- `avg_solve_time_ms` - Average solve time
-- `test_pass_rate` - Test pass rate
-- Go runtime metrics (`memstats`, `cmdline`)
+#### Metrics Configuration
+
+Configure metrics using environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `METRICS_MODE` | `prom` | Metrics mode: `prom` (Prometheus) or `otel` (OpenTelemetry) |
+| `METRICS_PATH` | `/metrics` | Metrics endpoint path |
+| `SERVICE_NAME` | `agent` | Service name for metrics |
+| `METRICS_NAMESPACE` | `agent` | Metrics namespace prefix |
+| `METRICS_COLLECT_RUNTIME` | `true` | Collect Go runtime metrics |
+
+#### Enabling OpenTelemetry Mode
+
+To use OpenTelemetry instead of Prometheus:
+
+```bash
+export METRICS_MODE=otel
+export SERVICE_NAME=agent-worker
+export METRICS_NAMESPACE=agent
+export METRICS_COLLECT_RUNTIME=true
+./worker-bin
+```
+
+#### Available Metrics
+
+##### Worker Metrics
+
+**Task Processing:**
+- `worker_task_received_total{worker_type,domain}` - Total tasks received
+- `worker_task_completed_total{worker_type,domain,status}` - Tasks completed by status
+- `worker_task_duration_seconds{worker_type,domain}` - Task execution duration (histogram)
+
+**Solve Stages:**
+- `worker_solve_stage_seconds{stage}` - Time spent in each solve stage (histogram)
+  - Stages: `kb`, `llm`, `evolve`, `interpret`, `tests`
+
+**Knowledge Base:**
+- `worker_kb_hits_total` - KB cache hits
+- `worker_kb_misses_total` - KB cache misses
+- `worker_kb_artifacts_loaded` - Number of loaded artifacts (gauge)
+- `worker_kb_save_artifact_total` - Artifacts saved to KB
+
+**RAG/Vector Search:**
+- `worker_rag_hits_total` - RAG search hits
+- `worker_rag_search_total{backend}` - RAG searches performed
+- `worker_rag_search_duration_seconds{backend}` - RAG search duration (histogram)
+- `worker_rag_candidates_found{backend}` - Candidates found in search (histogram)
+
+**Sandbox/Execution:**
+- `worker_sandbox_exec_total{result}` - Sandbox executions by result
+- `worker_sandbox_exec_seconds` - Sandbox execution duration (histogram)
+
+**Policy & Security:**
+- `worker_policy_denied_total{reason}` - Policy denials by reason
+
+**Evolution & Testing:**
+- `worker_mutations_total{kind}` - Mutations performed by type
+- `worker_tests_run_total{result}` - Tests run by result
+- `worker_tests_duration_seconds` - Test execution duration (histogram)
+
+##### LLM Router Metrics
+
+**Request Processing:**
+- `llm_requests_total{provider,model,status,cache}` - LLM requests by provider/model
+- `llm_request_duration_seconds{provider,model}` - Request duration (histogram)
+
+**Token Usage:**
+- `llm_tokens_input_total{provider,model}` - Input tokens consumed
+- `llm_tokens_output_total{provider,model}` - Output tokens generated
+
+**Cost Tracking:**
+- `llm_cost_total{provider,model,currency}` - Total cost by provider/model
+
+**Reliability:**
+- `llm_retries_total{provider,model}` - Retry attempts
+- `llm_circuit_open_total{provider,model}` - Circuit breaker activations
+
+##### HTTP Metrics
+
+**Request Metrics:**
+- `http_requests_total{path,method,code}` - HTTP requests by path/method/status
+- `http_request_duration_seconds{path,method}` - HTTP request duration (histogram)
+
+#### Metrics Best Practices
+
+##### Label Cardinality
+
+**✅ Good Labels (Low Cardinality):**
+- `worker_type`: `light`, `heavy`
+- `domain`: `algorithms.sorting`, `data.structures`
+- `provider`: `openai`, `anthropic`, `mock`
+- `model`: `gpt-4`, `claude-3`, `mock`
+- `status`: `ok`, `error`, `timeout`
+- `stage`: `kb`, `llm`, `evolve`, `interpret`, `tests`
+
+**❌ Bad Labels (High Cardinality):**
+- `task_id`: Unique per task (avoid!)
+- `user_id`: Unique per user (avoid!)
+- `request_id`: Unique per request (avoid!)
+- `timestamp`: Changes constantly (avoid!)
+
+##### Required Labels
+
+All metrics must include these mandatory labels:
+- `service`: Service name (e.g., `agent-worker`, `agent-router`)
+- `worker_type`: For worker metrics (`light`, `heavy`)
+- `domain`: For task-related metrics
+- `provider`: For LLM metrics
+- `model`: For LLM metrics
+
+##### Metric Types
+
+**Counters** - For events that only increase:
+- `worker_task_received_total`
+- `llm_requests_total`
+- `worker_kb_hits_total`
+
+**Histograms** - For latencies and durations:
+- `worker_task_duration_seconds`
+- `llm_request_duration_seconds`
+- `worker_solve_stage_seconds`
+
+**Gauges** - For current state/size:
+- `worker_kb_artifacts_loaded`
+- `worker_memory_usage_bytes`
+
+#### Example Queries
+
+**Task Success Rate:**
+```promql
+rate(worker_task_completed_total{status="ok"}[5m]) / rate(worker_task_received_total[5m])
+```
+
+**Average Task Duration:**
+```promql
+histogram_quantile(0.5, rate(worker_task_duration_seconds_bucket[5m]))
+```
+
+**LLM Request Rate:**
+```promql
+rate(llm_requests_total[5m])
+```
+
+**KB Hit Rate:**
+```promql
+rate(worker_kb_hits_total[5m]) / (rate(worker_kb_hits_total[5m]) + rate(worker_kb_misses_total[5m]))
+```
 
 ## Development
 
@@ -575,6 +758,15 @@ make docker-up-nginx
 |----------|---------|-------------|
 | `QDRANT_URL` | `localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | - | Qdrant API key (optional) |
+
+#### Metrics Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `METRICS_MODE` | `prom` | Metrics mode: `prom` or `otel` |
+| `METRICS_PATH` | `/metrics` | Metrics endpoint path |
+| `SERVICE_NAME` | `agent` | Service name for metrics |
+| `METRICS_NAMESPACE` | `agent` | Metrics namespace prefix |
+| `METRICS_COLLECT_RUNTIME` | `true` | Collect Go runtime metrics |
 
 ### Health Checks
 
