@@ -20,6 +20,7 @@ import (
 	"github.com/snow-ghost/agent/pkg/router/core"
 	"github.com/snow-ghost/agent/pkg/routing"
 	"github.com/snow-ghost/agent/pkg/streaming"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -129,8 +130,10 @@ func (s *Server) setupRoutes() {
 	v1.HandleFunc("/protection", s.handleProtection)
 	v1.HandleFunc("/cache", s.handleCache)
 
-	// Apply both observability and logging middleware to v1 routes
-	s.router.Handle("/v1/", loggingMiddleware(s.observabilityMiddlewareHandler(http.StripPrefix("/v1", v1))))
+	// Apply HTTP metrics, observability and logging middleware to v1 routes
+	httpMetricsMiddleware := llmmetrics.HTTPMetricsMiddleware
+	otelHandler := otelhttp.NewHandler(http.StripPrefix("/v1", v1), "llmrouter-v1")
+	s.router.Handle("/v1/", loggingMiddleware(httpMetricsMiddleware(s.observabilityMiddlewareHandler(otelHandler))))
 }
 
 // observabilityMiddlewareHandler adds observability to HTTP requests (Handler version)
