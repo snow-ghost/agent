@@ -6,6 +6,8 @@ import (
 	"math"
 	"math/rand"
 	"time"
+
+	llmmetrics "github.com/snow-ghost/agent/pkg/llmrouter/metrics"
 )
 
 // RetryConfig holds retry configuration
@@ -49,6 +51,16 @@ func NewRetryManager(config *RetryConfig) *RetryManager {
 // Execute executes a function with retry logic
 func (rm *RetryManager) Execute(ctx context.Context, fn RetryableFunc) (interface{}, error) {
 	var lastErr error
+	provider := "unknown"
+	model := "unknown"
+
+	// Try to extract provider and model from context for metrics
+	if providerCtx, ok := ctx.Value("provider").(string); ok {
+		provider = providerCtx
+	}
+	if modelCtx, ok := ctx.Value("model").(string); ok {
+		model = modelCtx
+	}
 
 	for attempt := 0; attempt <= rm.config.MaxRetries; attempt++ {
 		// Execute the function
@@ -70,6 +82,9 @@ func (rm *RetryManager) Execute(ctx context.Context, fn RetryableFunc) (interfac
 		if !rm.isRetryableError(err) {
 			return nil, err
 		}
+
+		// Record retry metric
+		llmmetrics.IncLLMRetry(ctx, provider, model)
 
 		// Calculate delay
 		delay := rm.calculateDelay(attempt)

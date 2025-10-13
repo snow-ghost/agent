@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	llmmetrics "github.com/snow-ghost/agent/pkg/llmrouter/metrics"
 	"github.com/snow-ghost/agent/pkg/metrics"
 	"github.com/snow-ghost/agent/pkg/ports"
 	"github.com/snow-ghost/agent/pkg/router/httpserver"
@@ -112,6 +113,9 @@ func main() {
 	if err := metrics.Init(); err != nil {
 		logger.Error("metrics init failed", "error", err)
 	}
+
+	// Initialize LLM router metrics
+	llmmetrics.Init()
 	metricsPath := os.Getenv("METRICS_PATH")
 	if metricsPath == "" {
 		metricsPath = "/metrics"

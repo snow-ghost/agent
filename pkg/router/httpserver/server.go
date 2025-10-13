@@ -13,6 +13,7 @@ import (
 	"github.com/snow-ghost/agent/pkg/cache"
 	"github.com/snow-ghost/agent/pkg/cost"
 	"github.com/snow-ghost/agent/pkg/limiter"
+	llmmetrics "github.com/snow-ghost/agent/pkg/llmrouter/metrics"
 	"github.com/snow-ghost/agent/pkg/observability"
 	"github.com/snow-ghost/agent/pkg/providers"
 	"github.com/snow-ghost/agent/pkg/registry"
@@ -562,13 +563,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Make real LLM request with extended timeout
 	s.logger.Info("making real LLM request", "model", selectedModel.ID, "provider", selectedModel.Provider, "request_id", requestID)
 
-	// Create context with 10 minute timeout for LLM requests
+	// Create context with 10 minute timeout for LLM requests and add provider/model context
 	llmCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
+	llmCtx = context.WithValue(llmCtx, "provider", selectedModel.Provider)
+	llmCtx = context.WithValue(llmCtx, "model", selectedModel.ID)
 
 	startTime := time.Now()
 	llmResponse, err := provider.Chat(llmCtx, *selectedModel, req)
 	duration := time.Since(startTime)
+
+	// Determine status and cache status for metrics
+	status := "ok"
+	cacheStatus := "miss"
+	if err != nil {
+		status = "error"
+	}
+
+	// Record LLM request metrics
+	llmmetrics.ObserveLLMRequest(ctx, selectedModel.Provider, selectedModel.ID, status, cacheStatus, duration, 0, 0, 0, "")
 
 	if err != nil {
 		s.logger.Error("LLM request failed", "error", err, "model", selectedModel.ID, "provider", selectedModel.Provider, "request_id", requestID)
@@ -608,6 +621,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			duration, response.Usage.TotalTokens, costResult.TotalCost, requestID,
 		)
 	}
+
+	// Update LLM metrics with actual token usage and cost
+	llmmetrics.ObserveLLMRequest(ctx, selectedModel.Provider, selectedModel.ID, "ok", "miss", duration,
+		int64(response.Usage.PromptTokens), int64(response.Usage.CompletionTokens), costResult.TotalCost, costResult.Currency)
 
 	// Record cost in accounting
 	if s.accounting != nil {

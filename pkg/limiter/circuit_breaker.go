@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	llmmetrics "github.com/snow-ghost/agent/pkg/llmrouter/metrics"
 	"github.com/snow-ghost/agent/pkg/registry"
 	"github.com/sony/gobreaker"
 )
@@ -119,6 +120,10 @@ func (cbm *CircuitBreakerManager) Execute(ctx context.Context, modelID string, c
 	})
 
 	if err != nil {
+		// Check if circuit breaker is open
+		if breaker.State() == gobreaker.StateOpen {
+			llmmetrics.IncLLMCircuitOpen(ctx, config.Provider, modelID)
+		}
 		return nil, fmt.Errorf("circuit breaker execution failed: %w", err)
 	}
 

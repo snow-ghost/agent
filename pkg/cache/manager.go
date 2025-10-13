@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	llmmetrics "github.com/snow-ghost/agent/pkg/llmrouter/metrics"
 	"github.com/snow-ghost/agent/pkg/router/core"
 )
 
@@ -43,6 +44,13 @@ func (cm *CacheManager) ExecuteWithCache(
 	key, err := GenerateKey(req)
 	if err != nil {
 		return core.ChatResponse{}, fmt.Errorf("failed to generate cache key: %w", err)
+	}
+
+	// Check cache first
+	if entry, exists := cm.cache.Get(key); exists {
+		// Cache hit - record metrics
+		llmmetrics.ObserveLLMRequest(ctx, "cache", req.Model, "ok", "hit", 0, 0, 0, 0, "")
+		return entry.Response, nil
 	}
 
 	// Determine TTL
