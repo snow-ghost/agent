@@ -30,6 +30,11 @@ func InitHTTPMetrics() {
 		Init() // Ensure base metrics are initialized
 	}
 
+	// Check if already initialized
+	if httpRequestsTotalProm != nil || httpRequestsTotalOTel != nil {
+		return
+	}
+
 	if mode == "otel" {
 		meter := coremetrics.Meter()
 		if meter == nil {

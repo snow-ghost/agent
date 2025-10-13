@@ -114,7 +114,7 @@ func TestE2E_FullSystemFlow(t *testing.T) {
 
 	// Test 6: Test LLM router health
 	t.Run("LLMRouterHealth", func(t *testing.T) {
-		resp := makeRequest(t, "GET", llmRouterURL+"/health", nil)
+		resp := makeRequest(t, "GET", llmRouterURL+"/healthz", nil)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var health map[string]interface{}
@@ -355,11 +355,26 @@ func TestE2E_ErrorHandling(t *testing.T) {
 
 // Helper functions
 
+func getenv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func mustParseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
 func submitTask(t *testing.T, routerURL string, task core.Task) core.Result {
 	body, err := json.Marshal(task)
 	require.NoError(t, err)
 
-	resp := makeRawRequest(t, "POST", routerURL+"/solve", body)
+	resp := makeRequest(t, "POST", routerURL+"/solve", body)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var result core.Result
@@ -374,37 +389,36 @@ func makeRequest(t *testing.T, method, url string, body interface{}) *http.Respo
 	var err error
 
 	if body != nil {
-		reqBody, err = json.Marshal(body)
-		require.NoError(t, err)
+		switch b := body.(type) {
+		case []byte:
+			reqBody = b
+		default:
+			reqBody, err = json.Marshal(body)
+			require.NoError(t, err)
+		}
 	}
 
-	return makeRawRequest(t, method, url, reqBody)
-}
-
-func makeRawRequest(t *testing.T, method, url string, body []byte) *http.Response {
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(reqBody))
 	require.NoError(t, err)
 
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 
 	return resp
 }
 
-func getenv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
+func makeRawRequest(t *testing.T, method, url string, body []byte) *http.Response {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	require.NoError(t, err)
 
-func mustParseDuration(s string) time.Duration {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		panic(err)
-	}
-	return d
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+
+	return resp
 }
