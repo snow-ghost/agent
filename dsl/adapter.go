@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/snow-ghost/agent/core"
@@ -17,10 +19,37 @@ type AFDSLInterpreter struct {
 
 // Runtime limits for safety
 const (
-	MaxExecutionSteps = 10000
-	MaxCallDepth      = 100
-	MaxMemoryMB       = 64
+	DefaultMaxExecutionSteps = 100000
+	DefaultMaxCallDepth      = 128
+	DefaultMaxMemoryMB       = 64
 )
+
+func getMaxSteps() int {
+	if v := os.Getenv("DSL_MAX_STEPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return DefaultMaxExecutionSteps
+}
+
+func getMaxDepth() int {
+	if v := os.Getenv("DSL_MAX_DEPTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return DefaultMaxCallDepth
+}
+
+func getMaxMemoryMB() int {
+	if v := os.Getenv("DSL_MAX_MEMORY_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return DefaultMaxMemoryMB
+}
 
 // NewAFDSLInterpreter creates a new AF-DSL interpreter
 func NewAFDSLInterpreter(policy core.PolicyGuard) *AFDSLInterpreter {
@@ -54,7 +83,7 @@ func (i *AFDSLInterpreter) Execute(ctx context.Context, h core.Hypothesis, t cor
 		// Create a budget (simplified)
 		budget := core.Budget{
 			CPUMillis: 1000000,
-			MemMB:     128,
+			MemMB:     getMaxMemoryMB(),
 			Timeout:   30 * time.Second,
 		}
 
@@ -137,8 +166,8 @@ func (i *AFDSLInterpreter) executeAFDSL(ctx context.Context, h core.Hypothesis, 
 	// Create execution context with step limits
 	execCtx := context.WithValue(ctx, "stepCount", &stepCount)
 	execCtx = context.WithValue(execCtx, "callDepth", &callDepth)
-	execCtx = context.WithValue(execCtx, "maxSteps", MaxExecutionSteps)
-	execCtx = context.WithValue(execCtx, "maxDepth", MaxCallDepth)
+	execCtx = context.WithValue(execCtx, "maxSteps", getMaxSteps())
+	execCtx = context.WithValue(execCtx, "maxDepth", getMaxDepth())
 
 	// Execute the program
 	outputValue, err := ExecuteProgram(execCtx, source, inputValue)
@@ -156,10 +185,10 @@ func (i *AFDSLInterpreter) executeAFDSL(ctx context.Context, h core.Hypothesis, 
 	memoryUsedMB := float64(memoryUsed) / (1024 * 1024)
 
 	// Check memory limit
-	if memoryUsedMB > MaxMemoryMB {
+	if memoryUsedMB > float64(getMaxMemoryMB()) {
 		return core.Result{
 			Success: false,
-			Logs:    fmt.Sprintf("Memory limit exceeded: %.2f MB (max %d MB)", memoryUsedMB, MaxMemoryMB),
+			Logs:    fmt.Sprintf("Memory limit exceeded: %.2f MB (max %d MB)", memoryUsedMB, getMaxMemoryMB()),
 		}, fmt.Errorf("memory limit exceeded: %.2f MB", memoryUsedMB)
 	}
 

@@ -17,9 +17,10 @@ type Manifest struct {
 	Domain         string          `json:"domain"`
 	Description    string          `json:"description"`
 	Tags           []string        `json:"tags"`
-	Lang           string          `json:"lang"`      // "wasm" | "go-skill"
-	Entry          string          `json:"entry"`     // export: "solve" (wasm) or "pkg.Func" (go-skill)
-	CodePath       string          `json:"code_path"` // path to .wasm or empty for go-skill
+	Lang           string          `json:"lang"`       // "wasm" | "go-skill" | "af-dsl"
+	Entry          string          `json:"entry"`      // export: "solve" (wasm) or "pkg.Func" (go-skill) or "program" (af-dsl)
+	CodePath       string          `json:"code_path"`  // path to .wasm or empty for go-skill/af-dsl
+	InlineSrc      string          `json:"inline_src"` // for af-dsl inline source
 	SHA256         string          `json:"sha256"`
 	EmbeddingModel string          `json:"embedding_model,omitempty"`
 	Embedding      []float32       `json:"embedding,omitempty"`
@@ -51,6 +52,18 @@ func (m *Manifest) SetWASM(codePath string, code []byte) error {
 	m.SHA256 = hex.EncodeToString(hash[:])
 
 	return nil
+}
+
+// SetAFDSL sets the manifest for an AF-DSL artifact (inline source stored in manifest)
+func (m *Manifest) SetAFDSL(entry string, src string) {
+	if entry == "" {
+		entry = "program"
+	}
+	m.Lang = "af-dsl"
+	m.Entry = entry
+	m.CodePath = ""
+	m.InlineSrc = src
+	m.SHA256 = "" // not used for inline src
 }
 
 // SetGoSkill sets the manifest for a Go skill
@@ -100,6 +113,10 @@ func (m *Manifest) Validate() error {
 		}
 		if m.SHA256 == "" {
 			return fmt.Errorf("WASM artifacts require SHA256")
+		}
+	} else if m.Lang == "af-dsl" {
+		if m.InlineSrc == "" {
+			return fmt.Errorf("AF-DSL artifacts require inline_src")
 		}
 	}
 

@@ -61,24 +61,25 @@ func NewWorker(config *Config) (Worker, error) {
 
 	case WorkerTypeHeavy:
 		// Create heavy worker components
-		llm := createLLMClient(config)
-		interp := wasm.NewInterpreter()
 		runner := testkit.NewRunner()
 		fitness := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.0)
 		critic := core.NewSimpleCritic()
 		mut := mutate.NewSimpleMutator()
 
-		return heavy.NewHeavyWorker(kb, llm, interp, runner, fitness, critic, mut, telemetry), nil
+		// Use design client as Designer
+		designer := llmclient.NewDesignClientFromEnv()
+
+		return heavy.NewHeavyWorker(kb, designer, runner, fitness, critic, mut, telemetry), nil
 
 	default:
 		// Default to heavy worker
-		llm := createLLMClient(config)
-		interp := wasm.NewInterpreter()
 		runner := testkit.NewRunner()
 		fitness := core.NewWeightedFitness(map[string]float64{"cases_passed": 1.0, "cases_total": 0.0}, 0.0)
 		critic := core.NewSimpleCritic()
 		mut := mutate.NewSimpleMutator()
 
-		return heavy.NewHeavyWorker(kb, llm, interp, runner, fitness, critic, mut, telemetry), nil
+		designer := llmclient.NewDesignClientFromEnv()
+
+		return heavy.NewHeavyWorker(kb, designer, runner, fitness, critic, mut, telemetry), nil
 	}
 }

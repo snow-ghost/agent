@@ -137,7 +137,7 @@ func NewDesignClient(baseURL, model, caller string, httpClient *http.Client) *De
 func NewDesignClientFromEnv() *DesignClient {
 	baseURL := os.Getenv("LLM_ROUTER_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8080"
+		baseURL = "http://localhost:8081"
 	}
 
 	model := os.Getenv("LLM_MODEL")

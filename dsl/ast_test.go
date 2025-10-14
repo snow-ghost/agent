@@ -96,7 +96,7 @@ func TestParseProgram(t *testing.T) {
 	}{
 		{
 			name:     "simple let",
-			input:    "(let x 5)",
+			input:    "(let x 5 (return x))",
 			expected: NodeTypeLet,
 		},
 		{
@@ -116,7 +116,7 @@ func TestParseProgram(t *testing.T) {
 		},
 		{
 			name:     "sequence",
-			input:    "(seq (let x 1) (let y 2))",
+			input:    "(seq (let x 1 (return x)) (let y 2 (return y)))",
 			expected: NodeTypeSeq,
 		},
 		{

@@ -259,13 +259,13 @@ func createValidDesign() HypothesisDesign {
 				Space string `json:"space"`
 			} `json:"complexity"`
 		}{
-			Name: "test-algorithm",
-			Idea: "Test algorithm for sorting",
+			Name: "TestAlgorithm",
+			Idea: "Test idea",
 			Complexity: struct {
 				Time  string `json:"time"`
 				Space string `json:"space"`
 			}{
-				Time:  "O(n log n)",
+				Time:  "O(n)",
 				Space: "O(1)",
 			},
 		},

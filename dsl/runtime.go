@@ -88,6 +88,8 @@ func (r *Runtime) Execute(ctx context.Context, node Node) (Value, error) {
 		result, err = r.executeLit(ctx, n)
 	case *VarNode:
 		result, err = r.executeVar(ctx, n)
+	case *ArrayNode:
+		result, err = r.executeArray(ctx, n)
 	default:
 		err = fmt.Errorf("unknown node type: %T", node)
 	}
@@ -231,6 +233,19 @@ func (r *Runtime) executeVar(ctx context.Context, node *VarNode) (Value, error) 
 		return nil, fmt.Errorf("undefined variable: %s", node.Name)
 	}
 	return value, nil
+}
+
+// executeArray executes an array literal
+func (r *Runtime) executeArray(ctx context.Context, node *ArrayNode) (Value, error) {
+	elements := make([]interface{}, len(node.Elements))
+	for i, element := range node.Elements {
+		value, err := r.Execute(ctx, element)
+		if err != nil {
+			return nil, err
+		}
+		elements[i] = value
+	}
+	return elements, nil
 }
 
 // callBuiltin calls a built-in function

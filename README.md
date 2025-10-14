@@ -63,6 +63,12 @@ The agent can be configured using environment variables:
 |----------|---------|-------------|
 | `WORKER_PORT` | `9002` | HTTP server port |
 | `LLM_MODE` | `mock` | LLM mode (`mock` or `disabled`) |
+| `LLM_ROUTER_URL` | `http://localhost:8081` | LLM router base URL |
+| `LLM_MODEL` | `lmstudio:qwen3-4b-2507` | Default LLM model for design |
+| `MAX_CODE_BYTES` | `65536` | Max AF-DSL source size (bytes) |
+| `DSL_MAX_STEPS` | `100000` | AF-DSL runtime max execution steps |
+| `DSL_MAX_DEPTH` | `128` | AF-DSL runtime max call depth |
+| `PROP_K` | `64` | Property tests to generate |
 | `POLICY_ALLOW_TOOLS` | `example.com,api.example.com` | Comma-separated list of allowed domains for HTTP tools |
 | `SANDBOX_MEM_MB` | `4` | WASM sandbox memory limit in MB |
 | `TASK_TIMEOUT` | `30s` | Default task timeout duration |

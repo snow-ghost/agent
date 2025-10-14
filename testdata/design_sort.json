@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "algorithm": {
+    "name": "stable merge sort",
+    "idea": "Perform a stable merge sort on an array of numbers",
+    "complexity": {"time": "O(n log n)", "space": "O(n)"}
+  },
+  "code": {
+    "lang": "af-dsl",
+    "entry": "program",
+    "src": "(let numbers input (if (sorted? numbers) (return numbers) (let mid (/ (len numbers) 2) (let left (slice numbers 0 mid) (let right (slice numbers mid (len numbers)) (return (merge left right)))))))"
+  },
+  "evaluation": {
+    "metrics": ["correctness", "time", "size"],
+    "fitness": "correctness*0.8 + time*0.15 + size*0.05",
+    "pass_threshold": 0.8
+  },
+  "tests": {
+    "unit": [
+      {"name": "unit_1", "input": "{\"numbers\":[3,1,2]}", "oracle": "{\"sorted\":[1,2,3]}", "weight": 1.0},
+      {"name": "unit_2", "input": "{\"numbers\":[5,4,6]}", "oracle": "{\"sorted\":[4,5,6]}", "weight": 1.0}
+    ],
+    "property": [
+      {"name": "sorted_property", "generator": "list<int>(n<=32)", "checks": ["sorted_non_decreasing", "permutes"]}
+    ]
+  }
+}
+
+

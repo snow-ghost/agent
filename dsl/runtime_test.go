@@ -39,7 +39,7 @@ func TestRuntime_Execute(t *testing.T) {
 		},
 		{
 			name:     "variable reference",
-			program:  "(let x 42 x)",
+			program:  "(let x 42 (return x))",
 			input:    nil,
 			expected: 42.0,
 		},
@@ -63,7 +63,7 @@ func TestRuntime_Execute(t *testing.T) {
 		},
 		{
 			name:     "sequence",
-			program:  "(seq (let x 1) (let y 2) y)",
+			program:  "(seq (let x 1 (return x)) (let y 2 (return y)))",
 			input:    nil,
 			expected: 2.0,
 		},
@@ -109,9 +109,9 @@ func TestRuntime_BuiltinFunctions(t *testing.T) {
 		},
 		{
 			name:     "merge function",
-			program:  "(let left input (let right [2 4] (call merge left right)))",
-			input:    []interface{}{1, 3},
-			expected: []interface{}{1, 2, 3, 4},
+			program:  "(let left input (let right [2.0 4.0] (return (call merge left right))))",
+			input:    []interface{}{1.0, 3.0},
+			expected: []interface{}{1.0, 2.0, 3.0, 4.0},
 		},
 		{
 			name:     "sorted check",
@@ -127,14 +127,14 @@ func TestRuntime_BuiltinFunctions(t *testing.T) {
 		},
 		{
 			name:     "permutes check",
-			program:  "(let a input (let b [3 1 2] (call permutes? a b)))",
-			input:    []interface{}{1, 2, 3},
+			program:  "(let a input (let b [3.0 1.0 2.0] (return (call permutes? a b))))",
+			input:    []interface{}{1.0, 2.0, 3.0},
 			expected: true,
 		},
 		{
 			name:     "permutes check different",
-			program:  "(let a input (let b [1 2 4] (call permutes? a b)))",
-			input:    []interface{}{1, 2, 3},
+			program:  "(let a input (let b [1.0 2.0 4.0] (return (call permutes? a b))))",
+			input:    []interface{}{1.0, 2.0, 3.0},
 			expected: false,
 		},
 		{
@@ -145,9 +145,9 @@ func TestRuntime_BuiltinFunctions(t *testing.T) {
 		},
 		{
 			name:     "concat function",
-			program:  "(let a input (let b [3 4] (call concat a b)))",
-			input:    []interface{}{1, 2},
-			expected: []interface{}{1, 2, 3, 4},
+			program:  "(let a input (let b [3.0 4.0] (return (call concat a b))))",
+			input:    []interface{}{1.0, 2.0},
+			expected: []interface{}{1.0, 2.0, 3.0, 4.0},
 		},
 	}
 
@@ -196,7 +196,7 @@ func TestRuntime_MergeSort(t *testing.T) {
 
 func TestRuntime_Timeout(t *testing.T) {
 	// Test timeout with a simple infinite loop
-	program := "(loop true (let x 1))"
+	program := "(loop true (let x 1 (return x)))"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -209,7 +209,7 @@ func TestRuntime_Timeout(t *testing.T) {
 
 func TestRuntime_StepLimit(t *testing.T) {
 	// Test step limit with a large loop
-	program := "(loop (< x 1000000) (let x (+ x 1)))"
+	program := "(let x 0 (loop (< x 1000000) (let x (+ x 1) (return x))))"
 
 	ctx := context.Background()
 	_, err := ExecuteProgram(ctx, program, nil)
@@ -220,7 +220,7 @@ func TestRuntime_StepLimit(t *testing.T) {
 
 func TestRuntime_StableMerge(t *testing.T) {
 	// Test stable merge with duplicate values
-	program := "(let left [1 3] (let right [1 2] (call merge left right)))"
+	program := "(let left [1.0 3.0] (let right [1.0 2.0] (return (call merge left right))))"
 
 	ctx := context.Background()
 	result, err := ExecuteProgram(ctx, program, nil)
@@ -229,7 +229,7 @@ func TestRuntime_StableMerge(t *testing.T) {
 		return
 	}
 
-	expected := []interface{}{1, 1, 2, 3}
+	expected := []interface{}{1.0, 1.0, 2.0, 3.0}
 	if !equalValues(result, expected) {
 		t.Errorf("Expected %v, got %v", expected, result)
 	}

@@ -18,23 +18,31 @@ var (
 	namespace string
 
 	// Prometheus instruments
-	taskReceivedProm  *prometheus.CounterVec
-	taskCompletedProm *prometheus.CounterVec
-	taskDurationProm  *prometheus.HistogramVec
-	stageDurationProm *prometheus.HistogramVec
-	kbHitsProm        prometheus.Counter
-	kbMissesProm      prometheus.Counter
-	ragHitsProm       prometheus.Counter
+	taskReceivedProm         *prometheus.CounterVec
+	taskCompletedProm        *prometheus.CounterVec
+	taskDurationProm         *prometheus.HistogramVec
+	stageDurationProm        *prometheus.HistogramVec
+	stageDurationLabeledProm *prometheus.HistogramVec
+	llmDesignFailProm        *prometheus.CounterVec
+	dslParseFailProm         *prometheus.CounterVec
+	validationFailProm       *prometheus.CounterVec
+	kbHitsProm               prometheus.Counter
+	kbMissesProm             prometheus.Counter
+	ragHitsProm              prometheus.Counter
 
 	// OTel instruments
-	meter             metric.Meter
-	taskReceivedOTel  metric.Int64Counter
-	taskCompletedOTel metric.Int64Counter
-	taskDurationOTel  metric.Float64Histogram
-	stageDurationOTel metric.Float64Histogram
-	kbHitsOTel        metric.Int64Counter
-	kbMissesOTel      metric.Int64Counter
-	ragHitsOTel       metric.Int64Counter
+	meter                    metric.Meter
+	taskReceivedOTel         metric.Int64Counter
+	taskCompletedOTel        metric.Int64Counter
+	taskDurationOTel         metric.Float64Histogram
+	stageDurationOTel        metric.Float64Histogram
+	stageDurationLabeledOTel metric.Float64Histogram
+	llmDesignFailOTel        metric.Int64Counter
+	dslParseFailOTel         metric.Int64Counter
+	validationFailOTel       metric.Int64Counter
+	kbHitsOTel               metric.Int64Counter
+	kbMissesOTel             metric.Int64Counter
+	ragHitsOTel              metric.Int64Counter
 
 	// Sandbox / policy metrics
 	sandboxExecTotalProm   *prometheus.CounterVec
@@ -97,6 +105,10 @@ func Init() {
 		taskCompletedOTel, _ = meter.Int64Counter(namespace + ".worker.task_completed_total")
 		taskDurationOTel, _ = meter.Float64Histogram(namespace + ".worker.task_duration_seconds")
 		stageDurationOTel, _ = meter.Float64Histogram(namespace + ".worker.solve_stage_seconds")
+		stageDurationLabeledOTel, _ = meter.Float64Histogram(namespace + ".worker.solve_stage_seconds_labeled")
+		llmDesignFailOTel, _ = meter.Int64Counter(namespace + ".worker.llm_design_fail_total")
+		dslParseFailOTel, _ = meter.Int64Counter(namespace + ".worker.dsl_parse_fail_total")
+		validationFailOTel, _ = meter.Int64Counter(namespace + ".worker.validation_fail_total")
 		kbHitsOTel, _ = meter.Int64Counter(namespace + ".worker.kb_hits_total")
 		kbMissesOTel, _ = meter.Int64Counter(namespace + ".worker.kb_misses_total")
 		ragHitsOTel, _ = meter.Int64Counter(namespace + ".worker.rag_hits_total")
@@ -141,6 +153,22 @@ func Init() {
 	stageDurationProm = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{Namespace: namespace, Name: "worker_solve_stage_seconds", Help: "Solve stage duration", Buckets: prometheus.DefBuckets},
 		[]string{"stage"},
+	)
+	stageDurationLabeledProm = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{Namespace: namespace, Name: "worker_solve_stage_seconds_labeled", Help: "Solve stage duration (labeled)", Buckets: prometheus.DefBuckets},
+		[]string{"stage", "worker_type", "domain"},
+	)
+	llmDesignFailProm = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Namespace: namespace, Name: "worker_llm_design_fail_total", Help: "LLM design failures"},
+		[]string{"worker_type", "domain"},
+	)
+	dslParseFailProm = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Namespace: namespace, Name: "worker_dsl_parse_fail_total", Help: "DSL parse failures"},
+		[]string{"worker_type", "domain"},
+	)
+	validationFailProm = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Namespace: namespace, Name: "worker_validation_fail_total", Help: "Validation failures"},
+		[]string{"worker_type", "domain"},
 	)
 	kbHitsProm = prometheus.NewCounter(prometheus.CounterOpts{Namespace: namespace, Name: "worker_kb_hits_total", Help: "KB hits"})
 	kbMissesProm = prometheus.NewCounter(prometheus.CounterOpts{Namespace: namespace, Name: "worker_kb_misses_total", Help: "KB misses"})
@@ -190,7 +218,7 @@ func Init() {
 	)
 	ragCandidatesFoundProm = ragCandidatesFound
 
-	reg.MustRegister(taskReceivedProm, taskCompletedProm, taskDurationProm, stageDurationProm, kbHitsProm, kbMissesProm, ragHitsProm, sandboxExecTotalProm, sandboxExecSeconds, policyDeniedProm, mutationsTotalProm, testsRunTotalProm, testsDuration, kbArtifactsLoadedProm, kbSaveArtifactTotalProm, ragSearchTotalProm, ragSearchDuration, ragCandidatesFound)
+	reg.MustRegister(taskReceivedProm, taskCompletedProm, taskDurationProm, stageDurationProm, stageDurationLabeledProm, llmDesignFailProm, dslParseFailProm, validationFailProm, kbHitsProm, kbMissesProm, ragHitsProm, sandboxExecTotalProm, sandboxExecSeconds, policyDeniedProm, mutationsTotalProm, testsRunTotalProm, testsDuration, kbArtifactsLoadedProm, kbSaveArtifactTotalProm, ragSearchTotalProm, ragSearchDuration, ragCandidatesFound)
 }
 
 // WithStage measures a named stage duration and records it.
@@ -205,6 +233,65 @@ func WithStage(ctx context.Context, stage string, f func(context.Context)) {
 	}
 	if stageDurationProm != nil {
 		stageDurationProm.WithLabelValues(stage).Observe(dur)
+	}
+}
+
+// WithLabeledStage measures a named stage with worker_type and domain labels
+func WithLabeledStage(ctx context.Context, stage, workerType, domain string, f func(context.Context)) {
+	Init()
+	start := time.Now()
+	f(ctx)
+	dur := time.Since(start).Seconds()
+	if mode == "otel" {
+		stageDurationLabeledOTel.Record(ctx, dur, metric.WithAttributes(
+			attribute.String("stage", stage),
+			attribute.String("worker_type", workerType),
+			attribute.String("domain", domain),
+		))
+		return
+	}
+	if stageDurationLabeledProm != nil {
+		stageDurationLabeledProm.WithLabelValues(stage, workerType, domain).Observe(dur)
+	}
+}
+
+// IncDesignFail increments design failure counters
+func IncDesignFail(ctx context.Context, workerType, domain, kind string) {
+	Init()
+	switch kind {
+	case "llm":
+		if mode == "otel" {
+			llmDesignFailOTel.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("worker_type", workerType),
+				attribute.String("domain", domain),
+			))
+			return
+		}
+		if llmDesignFailProm != nil {
+			llmDesignFailProm.WithLabelValues(workerType, domain).Inc()
+		}
+	case "dsl":
+		if mode == "otel" {
+			dslParseFailOTel.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("worker_type", workerType),
+				attribute.String("domain", domain),
+			))
+			return
+		}
+		if dslParseFailProm != nil {
+			dslParseFailProm.WithLabelValues(workerType, domain).Inc()
+		}
+	case "validation":
+		if mode == "otel" {
+			validationFailOTel.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("worker_type", workerType),
+				attribute.String("domain", domain),
+			))
+			return
+		}
+		if validationFailProm != nil {
+			validationFailProm.WithLabelValues(workerType, domain).Inc()
+		}
 	}
 }
 

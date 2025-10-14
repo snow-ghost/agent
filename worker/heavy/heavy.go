@@ -16,6 +16,7 @@ import (
 	"github.com/snow-ghost/agent/prompts"
 	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/common"
+	"github.com/snow-ghost/agent/worker/metrics"
 	"github.com/snow-ghost/agent/worker/telemetry"
 )
 
@@ -80,8 +81,18 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 
 	// Request design from Designer
 	slog.InfoContext(ctx, "requesting design", "task_id", task.ID, "stage", "llm_design")
-	hd, _, err := h.designer.Design(ctx, userJSON)
+	var hd design.HypothesisDesign
+	workerType := "heavy"
+	// measure llm_design stage
+	metrics.WithLabeledStage(ctx, "llm_design", workerType, task.Domain, func(ctx context.Context) {
+		var derr error
+		hd, _, derr = h.designer.Design(ctx, userJSON)
+		if derr != nil {
+			err = derr
+		}
+	})
 	if err != nil {
+		metrics.IncDesignFail(ctx, workerType, task.Domain, "llm")
 		slog.ErrorContext(ctx, "design request failed", "error", err, "task_id", task.ID)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
 		return core.Result{Success: false}, err
@@ -89,10 +100,15 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 
 	// 3) Validate design
 	slog.InfoContext(ctx, "validating design", "task_id", task.ID, "stage", "dsl_parse")
-	if err := design.Validate(hd); err != nil {
-		slog.ErrorContext(ctx, "design validation failed", "error", err, "task_id", task.ID)
+	var vErr error
+	metrics.WithLabeledStage(ctx, "dsl_parse", workerType, task.Domain, func(ctx context.Context) {
+		vErr = design.Validate(hd)
+	})
+	if vErr != nil {
+		metrics.IncDesignFail(ctx, workerType, task.Domain, "validation")
+		slog.ErrorContext(ctx, "design validation failed", "error", vErr, "task_id", task.ID)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
-		return core.Result{Success: false}, fmt.Errorf("design validation failed: %w", err)
+		return core.Result{Success: false}, fmt.Errorf("design validation failed: %w", vErr)
 	}
 
 	// Check if design indicates cannot_solve
@@ -135,7 +151,11 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 
 	// 7) Run tests and evaluate fitness
 	slog.InfoContext(ctx, "running tests", "task_id", task.ID, "stage", "tests")
-	metrics, pass, err := h.tests.Run(ctx, hypothesis, allTests, interpreter)
+	var testMetrics map[string]float64
+	var pass bool
+	metrics.WithLabeledStage(ctx, "tests", workerType, task.Domain, func(ctx context.Context) {
+		testMetrics, pass, err = h.tests.Run(ctx, hypothesis, allTests, interpreter)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "test run failed", "error", err, "task_id", task.ID)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
@@ -144,8 +164,11 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 
 	// 8) Evaluate fitness and compare with PassThreshold
 	slog.InfoContext(ctx, "evaluating fitness", "task_id", task.ID, "stage", "fitness")
+	var score float64
 	fitness := core.NewFitnessFromDesign(hypothesis.Meta)
-	score := fitness.Score(task, metrics, len(hypothesis.Bytes))
+	metrics.WithLabeledStage(ctx, "fitness", workerType, task.Domain, func(ctx context.Context) {
+		score = fitness.Score(task, testMetrics, len(hypothesis.Bytes))
+	})
 	passThreshold, _ := strconv.ParseFloat(hypothesis.Meta["pass_threshold"], 64)
 	passed := fitness.Passed(score, passThreshold)
 

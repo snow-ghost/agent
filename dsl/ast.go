@@ -19,6 +19,8 @@ const (
 	TokenEOF TokenType = iota
 	TokenLParen
 	TokenRParen
+	TokenLBracket
+	TokenRBracket
 	TokenSymbol
 	TokenNumber
 	TokenString
@@ -34,6 +36,10 @@ func (t TokenType) String() string {
 		return "("
 	case TokenRParen:
 		return ")"
+	case TokenLBracket:
+		return "["
+	case TokenRBracket:
+		return "]"
 	case TokenSymbol:
 		return "SYMBOL"
 	case TokenNumber:
@@ -68,6 +74,7 @@ const (
 	NodeTypeAssert
 	NodeTypeLit
 	NodeTypeVar
+	NodeTypeArray
 )
 
 func (nt NodeType) String() string {
@@ -90,6 +97,8 @@ func (nt NodeType) String() string {
 		return "LIT"
 	case NodeTypeVar:
 		return "VAR"
+	case NodeTypeArray:
+		return "ARRAY"
 	default:
 		return "UNKNOWN"
 	}
@@ -239,6 +248,23 @@ func (n *VarNode) Type() NodeType {
 	return NodeTypeVar
 }
 
+// ArrayNode represents an array literal
+type ArrayNode struct {
+	Elements []Node
+}
+
+func (a *ArrayNode) String() string {
+	var parts []string
+	for _, element := range a.Elements {
+		parts = append(parts, element.String())
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
+func (a *ArrayNode) Type() NodeType {
+	return NodeTypeArray
+}
+
 // Tokenize tokenizes an S-expression string
 func Tokenize(input string) []Token {
 	var tokens []Token
@@ -263,6 +289,12 @@ func Tokenize(input string) []Token {
 			pos++
 		case char == ')':
 			tokens = append(tokens, Token{Type: TokenRParen, Value: ")", Pos: pos})
+			pos++
+		case char == '[':
+			tokens = append(tokens, Token{Type: TokenLBracket, Value: "[", Pos: pos})
+			pos++
+		case char == ']':
+			tokens = append(tokens, Token{Type: TokenRBracket, Value: "]", Pos: pos})
 			pos++
 		case char == '"':
 			// String literal

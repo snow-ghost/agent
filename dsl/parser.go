@@ -45,6 +45,8 @@ func (p *Parser) parseExpression() (Node, error) {
 	switch token.Type {
 	case TokenLParen:
 		return p.parseList()
+	case TokenLBracket:
+		return p.parseArray()
 	case TokenSymbol:
 		return p.parseSymbol()
 	case TokenNumber:
@@ -119,6 +121,29 @@ func (p *Parser) parseSeq() (Node, error) {
 
 	p.advance() // consume closing parenthesis
 	return &SeqNode{Statements: statements}, nil
+}
+
+// parseArray parses an array literal
+func (p *Parser) parseArray() (Node, error) {
+	// Consume opening bracket
+	p.advance()
+
+	var elements []Node
+
+	for p.current().Type != TokenRBracket && p.current().Type != TokenEOF {
+		element, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		elements = append(elements, element)
+	}
+
+	if p.current().Type != TokenRBracket {
+		return nil, fmt.Errorf("expected ']' after array, got %s at position %d", p.current().Value, p.current().Pos)
+	}
+
+	p.advance() // consume closing bracket
+	return &ArrayNode{Elements: elements}, nil
 }
 
 // parseLet parses a let binding

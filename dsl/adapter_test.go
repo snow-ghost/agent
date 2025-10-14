@@ -2,6 +2,7 @@ package dsl
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func TestAFDSLInterpreter_ExecuteWithTimeout(t *testing.T) {
 		ID:     "test-hypothesis",
 		Source: "test",
 		Lang:   "af-dsl",
-		Bytes:  []byte("(loop (return input))"), // This might cause issues
+		Bytes:  []byte("(loop true (return input))"), // This might cause issues
 		Meta:   map[string]string{},
 	}
 
@@ -69,9 +70,9 @@ func TestAFDSLInterpreter_ExecuteWithTimeout(t *testing.T) {
 	ctx := context.Background()
 	_, err := interpreter.Execute(ctx, hypothesis, task)
 
-	// Should either succeed or fail with timeout, but not panic
-	if err != nil && err.Error() != "execution timeout: context deadline exceeded" {
-		t.Errorf("Expected timeout error, got: %v", err)
+	// Should either succeed or fail with timeout/step limit, but not panic
+	if err != nil && !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "step limit exceeded") {
+		t.Errorf("Expected timeout or step limit error, got: %v", err)
 	}
 }
 
@@ -120,7 +121,7 @@ func TestAFDSLInterpreter_ExecuteWithMemoryLimit(t *testing.T) {
 	}
 
 	// Create a large input that might exceed memory limits
-	largeInput := make([]byte, MaxMemoryMB*1024*1024*2) // 2x the memory limit
+	largeInput := make([]byte, getMaxMemoryMB()*1024*1024*2) // 2x the memory limit
 	for i := range largeInput {
 		largeInput[i] = 'a'
 	}
@@ -131,7 +132,7 @@ func TestAFDSLInterpreter_ExecuteWithMemoryLimit(t *testing.T) {
 		Input:  largeInput,
 		Budget: core.Budget{
 			CPUMillis: 1000,
-			MemMB:     MaxMemoryMB,
+			MemMB:     getMaxMemoryMB(),
 			Timeout:   30 * time.Second,
 		},
 	}

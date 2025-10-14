@@ -7,6 +7,7 @@ import (
 
 	"github.com/snow-ghost/agent/artifact"
 	"github.com/snow-ghost/agent/core"
+	"github.com/snow-ghost/agent/dsl"
 )
 
 // ArtifactSkill wraps a Manifest to implement the core.Skill interface
@@ -83,6 +84,8 @@ func (as *ArtifactSkill) Execute(ctx context.Context, task core.Task) (core.Resu
 		return as.executeWASM(ctx, task)
 	case "go-skill":
 		return as.executeGoSkill(ctx, task)
+	case "af-dsl":
+		return as.executeAFDSL(ctx, task)
 	default:
 		return core.Result{Success: false}, fmt.Errorf("unsupported artifact language: %s", as.manifest.Lang)
 	}
@@ -116,6 +119,31 @@ func (as *ArtifactSkill) executeWASM(ctx context.Context, task core.Task) (core.
 
 	// Execute WASM
 	return as.wasmExec.Execute(ctx, hypothesis, task)
+}
+
+// executeAFDSL executes an AF-DSL artifact using inline source from manifest
+func (as *ArtifactSkill) executeAFDSL(ctx context.Context, task core.Task) (core.Result, error) {
+	if as.manifest.InlineSrc == "" {
+		return core.Result{Success: false}, fmt.Errorf("AF-DSL inline source is empty")
+	}
+
+	// Create AF-DSL interpreter on demand
+	interpreter := dsl.NewAFDSLInterpreter(nil)
+
+	// Build hypothesis from manifest
+	hypothesis := core.Hypothesis{
+		ID:     as.manifest.ID,
+		Source: "artifact",
+		Lang:   "af-dsl",
+		Bytes:  []byte(as.manifest.InlineSrc),
+		Meta: map[string]string{
+			"version":     as.manifest.Version,
+			"description": as.manifest.Description,
+			"domain":      as.manifest.Domain,
+		},
+	}
+
+	return interpreter.Execute(ctx, hypothesis, task)
 }
 
 // executeGoSkill executes a Go skill
@@ -271,6 +299,9 @@ func (kb *ArtifactKnowledgeBase) SaveHypothesis(ctx context.Context, h core.Hypo
 			pkgFunc = "unknown.Func"
 		}
 		manifest.SetGoSkill(pkgFunc)
+	case "af-dsl":
+		entry := h.Meta["entry"]
+		manifest.SetAFDSL(entry, string(h.Bytes))
 	default:
 		return fmt.Errorf("unsupported hypothesis language: %s", h.Lang)
 	}
@@ -290,7 +321,12 @@ func (kb *ArtifactKnowledgeBase) SaveHypothesis(ctx context.Context, h core.Hypo
 	manifest.AddTag(qualityTag)
 
 	// Save artifact
-	if err := kb.fs.SaveArtifact(manifest, h.Bytes); err != nil {
+	// For af-dsl, code bytes are not written to file; InlineSrc embedded in manifest
+	codeToWrite := h.Bytes
+	if h.Lang == "af-dsl" {
+		codeToWrite = nil
+	}
+	if err := kb.fs.SaveArtifact(manifest, codeToWrite); err != nil {
 		return err
 	}
 
