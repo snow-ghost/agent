@@ -137,12 +137,12 @@ func NewDesignClient(baseURL, model, caller string, httpClient *http.Client) *De
 func NewDesignClientFromEnv() *DesignClient {
 	baseURL := os.Getenv("LLM_ROUTER_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8081"
+		baseURL = "http://localhost:9000"
 	}
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" {
-		model = "lmstudio:qwen3-4b-2507"
+		model = "lmstudio:qwen/qwen3-4b-2507"
 	}
 
 	caller := os.Getenv("LLM_CALLER")
@@ -155,11 +155,13 @@ func NewDesignClientFromEnv() *DesignClient {
 
 // DesignRequest represents a design request to the LLM router
 type DesignRequest struct {
-	Model          string            `json:"model"`
-	Messages       []core.Message    `json:"messages"`
-	ResponseFormat map[string]string `json:"response_format,omitempty"`
-	Caller         string            `json:"caller,omitempty"`
-	Metadata       map[string]string `json:"metadata,omitempty"`
+	Model          string                 `json:"model"`
+	Messages       []core.Message         `json:"messages"`
+	ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
+	Caller         string                 `json:"caller,omitempty"`
+	Metadata       map[string]string      `json:"metadata,omitempty"`
+	MaxTokens      int                    `json:"max_tokens,omitempty"`
+	Temperature    float32                `json:"temperature,omitempty"`
 }
 
 // DesignResponse represents a design response from the LLM router
@@ -175,6 +177,86 @@ type DesignResponse struct {
 // Design sends a design request to the LLM router and returns a validated HypothesisDesign
 func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.HypothesisDesign, []byte, error) {
 	// Create the design request
+	// Build strict JSON schema mirroring the spec in the system prompt
+	jsonSchema := map[string]interface{}{
+		"type":     "object",
+		"required": []string{"status"},
+		"properties": map[string]interface{}{
+			"status": map[string]interface{}{
+				"type": "string",
+				"enum": []string{"ok", "cannot_solve"},
+			},
+			"reason": map[string]interface{}{"type": "string"},
+			"algorithm": map[string]interface{}{
+				"type":     "object",
+				"required": []string{"name", "idea", "complexity"},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+					"idea": map[string]interface{}{"type": "string"},
+					"complexity": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"time", "space"},
+						"properties": map[string]interface{}{
+							"time":  map[string]interface{}{"type": "string"},
+							"space": map[string]interface{}{"type": "string"},
+						},
+						"additionalProperties": false,
+					},
+				},
+				"additionalProperties": false,
+			},
+			"code": map[string]interface{}{
+				"type":     "object",
+				"required": []string{"lang", "entry", "src"},
+				"properties": map[string]interface{}{
+					"lang":  map[string]interface{}{"type": "string", "enum": []string{"af-dsl"}},
+					"entry": map[string]interface{}{"type": "string", "enum": []string{"program"}},
+					"src":   map[string]interface{}{"type": "string"},
+				},
+				"additionalProperties": false,
+			},
+			"evaluation": map[string]interface{}{
+				"type":     "object",
+				"required": []string{"metrics", "fitness", "pass_threshold"},
+				"properties": map[string]interface{}{
+					"metrics":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"fitness":        map[string]interface{}{"type": "string"},
+					"pass_threshold": map[string]interface{}{"type": "number"},
+				},
+				"additionalProperties": false,
+			},
+			"tests": map[string]interface{}{
+				"type":     "object",
+				"required": []string{"unit", "property"},
+				"properties": map[string]interface{}{
+					"unit": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"name", "input", "oracle", "weight"},
+						"properties": map[string]interface{}{
+							"name":   map[string]interface{}{"type": "string"},
+							"input":  map[string]interface{}{"type": "string"},
+							"oracle": map[string]interface{}{"type": "string"},
+							"weight": map[string]interface{}{"type": "number"},
+						},
+						"additionalProperties": false,
+					}},
+					"property": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"name", "generator", "checks"},
+						"properties": map[string]interface{}{
+							"name":      map[string]interface{}{"type": "string"},
+							"generator": map[string]interface{}{"type": "string"},
+							"checks":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						},
+						"additionalProperties": false,
+					}},
+				},
+				"additionalProperties": false,
+			},
+		},
+		"additionalProperties": false,
+	}
+
 	req := DesignRequest{
 		Model: c.Model,
 		Messages: []core.Message{
@@ -187,13 +269,20 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 				Content: taskJSON,
 			},
 		},
-		ResponseFormat: map[string]string{
-			"type": "json",
+		ResponseFormat: map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "design_schema",
+				"strict": true,
+				"schema": jsonSchema,
+			},
 		},
 		Caller: c.Caller,
 		Metadata: map[string]string{
 			"task_domain": "algorithm_design",
 		},
+		MaxTokens:   4096,
+		Temperature: 0.7,
 	}
 
 	// Marshal request

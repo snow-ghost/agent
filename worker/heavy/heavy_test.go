@@ -9,7 +9,6 @@ import (
 	"github.com/snow-ghost/agent/design"
 	"github.com/snow-ghost/agent/pkg/llm/client"
 	"github.com/snow-ghost/agent/testkit"
-	"github.com/snow-ghost/agent/worker/telemetry"
 )
 
 // mockDesigner implements client.Designer for testing
@@ -29,11 +28,7 @@ func (m *mockDesigner) Design(ctx context.Context, taskJSON string) (design.Hypo
 // Ensure mockDesigner implements client.Designer
 var _ client.Designer = (*mockDesigner)(nil)
 
-var sharedTelemetry *telemetry.Telemetry
-
-func init() {
-	sharedTelemetry = telemetry.NewTelemetry()
-}
+// Use global telemetry instance
 
 func TestHeavyWorker_Solve_WithValidDesign(t *testing.T) {
 	ctx := context.Background()
@@ -137,7 +132,7 @@ func TestHeavyWorker_Solve_WithValidDesign(t *testing.T) {
 	mutator := &mockMutator{}
 
 	// Create heavy worker
-	worker := NewHeavyWorker(kb, designer, tests, fitness, critic, mutator, sharedTelemetry)
+	worker := NewHeavyWorker(kb, designer, tests, fitness, critic, mutator, GetGlobalTelemetry())
 
 	// Create test task
 	task := core.Task{
@@ -205,7 +200,7 @@ func TestHeavyWorker_Solve_WithCannotSolveDesign(t *testing.T) {
 	mutator := &mockMutator{}
 
 	// Create heavy worker
-	worker := NewHeavyWorker(kb, designer, tests, fitness, critic, mutator, sharedTelemetry)
+	worker := NewHeavyWorker(kb, designer, tests, fitness, critic, mutator, GetGlobalTelemetry())
 
 	// Create test task
 	task := core.Task{

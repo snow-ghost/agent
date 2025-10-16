@@ -14,6 +14,16 @@ Constraints:
 - Prefer simple/fast solutions; include complexity estimates.
 - Provide both unit tests (with oracle) and property tests (checks).
 - Code must be in AF-DSL (S-expr) with entry (program) and well-typed nodes: SEQ, IF, LOOP, CALL, LET, RETURN, ASSERT.
+ - Output MUST be a single valid JSON object with no extraneous text before/after.
+ - Use strict JSON (no comments, trailing commas, NaN/Infinity, or unescaped control chars).
+ - Populate code.src with a single top-level S-expression starting with (program ...).
+ - Ensure code.src parentheses are balanced: the count of '(' equals the count of ')'.
+ - Escape any double quotes inside code.src as \" so the JSON stays valid.
+ - Do not wrap JSON in code fences/backticks; return raw JSON only.
+
+Self-check before answering:
+- Verify your JSON parses.
+- Verify code.src is a valid S-expression with balanced parentheses and a (program ...) root.
 
 Output JSON schema:
 {

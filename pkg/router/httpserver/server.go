@@ -56,6 +56,38 @@ func NewServer(port string, logger *slog.Logger) *Server {
 		reg = registry.GetDefaultRegistry()
 	}
 
+	// Log loaded models summary
+	logger.Info("loaded model registry",
+		"total_models", reg.GetTotalModels(),
+		"providers", reg.GetAllProviders(),
+	)
+
+	// Group models by provider for better logging
+	modelsByProvider := make(map[string][]registry.ModelConfig)
+	for _, model := range reg.Models {
+		modelsByProvider[model.Provider] = append(modelsByProvider[model.Provider], model)
+	}
+
+	// Log models grouped by provider
+	for provider, models := range modelsByProvider {
+		logger.Info("loaded provider models",
+			"provider", provider,
+			"count", len(models),
+		)
+
+		for _, model := range models {
+			logger.Info("loaded model",
+				"id", model.ID,
+				"provider", model.Provider,
+				"kind", model.Kind,
+				"base_url", model.BaseURL,
+				"tags", model.Tags,
+				"max_rpm", model.MaxRPM,
+				"max_tpm", model.MaxTPM,
+			)
+		}
+	}
+
 	// Create cache manager
 	cacheConfig := cache.DefaultCacheConfig()
 	cacheManager, err := cache.NewCacheManager(cacheConfig)

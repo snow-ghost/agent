@@ -235,6 +235,29 @@ docker-up-all:
 	@echo "Starting all services (including monitoring and tracing)..."
 	docker-compose --profile tracing --profile monitoring up -d
 
+# Test with real LLM
+test-real-llm:
+	@echo "Running tests with real LLM..."
+	@if [ -z "$$OPENAI_API_KEY" ] && [ -z "$$ANTHROPIC_API_KEY" ]; then \
+		echo "Error: No API keys set. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY"; \
+		exit 1; \
+	fi
+	@./scripts/test-real-llm.sh
+
+# Start LLM router for testing
+start-llmrouter:
+	@echo "Starting LLM Router for testing..."
+	@LLMROUTER_PORT=9000 go run ./cmd/llmrouter
+
+# Test with Docker
+test-docker:
+	@echo "Running tests with Docker LLM Router..."
+	@docker-compose -f docker-compose.test.yml up -d llmrouter-test
+	@echo "Waiting for LLM Router to start..."
+	@sleep 10
+	@LLM_ROUTER_URL=http://localhost:9000 go test -v ./worker/heavy -run "TestHeavySolve_WithRealLLM"
+	@docker-compose -f docker-compose.test.yml down
+
 # CI pipeline
 ci: deps fmt vet lint test build
 	@echo "CI pipeline completed successfully"

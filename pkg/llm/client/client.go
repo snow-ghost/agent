@@ -58,15 +58,16 @@ func NewClient(config Config) *Client {
 
 // ChatRequest represents a chat completion request
 type ChatRequest struct {
-	Model       string            `json:"model"`
-	Messages    []core.Message    `json:"messages"`
-	Tools       []core.Tool       `json:"tools,omitempty"`
-	Temperature float32           `json:"temperature,omitempty"`
-	TopP        float32           `json:"top_p,omitempty"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Stream      bool              `json:"stream,omitempty"`
-	Caller      string            `json:"caller,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Model          string                 `json:"model"`
+	Messages       []core.Message         `json:"messages"`
+	Tools          []core.Tool            `json:"tools,omitempty"`
+	ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
+	Temperature    float32                `json:"temperature,omitempty"`
+	TopP           float32                `json:"top_p,omitempty"`
+	MaxTokens      int                    `json:"max_tokens,omitempty"`
+	Stream         bool                   `json:"stream,omitempty"`
+	Caller         string                 `json:"caller,omitempty"`
+	Metadata       map[string]string      `json:"metadata,omitempty"`
 }
 
 // ChatResponse represents a chat completion response

@@ -84,6 +84,8 @@ func main() {
 	// Log loaded configuration
 	config.LogConfig(logger)
 
+	logger.Info("LLM router initialized successfully")
+
 	// Validate and derive ports
 	apiPort, err := strconv.Atoi(config.Port)
 	if err != nil {

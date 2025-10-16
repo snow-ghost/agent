@@ -10,8 +10,9 @@ import (
 	"github.com/snow-ghost/agent/dsl"
 	"github.com/snow-ghost/agent/pkg/llm/client"
 	"github.com/snow-ghost/agent/testkit"
-	"github.com/snow-ghost/agent/worker/telemetry"
 )
+
+// Use global telemetry instance
 
 // simple in-memory KB based on artifact FS with a temp dir
 type noopKB struct{}
@@ -25,7 +26,7 @@ func TestHeavySolve_WithMockDesigner(t *testing.T) {
 	ctx := context.Background()
 
 	kb := &noopKB{}
-	designer := &client.MockDesigner{FixturePath: "testdata/design_sort.json"}
+	designer := &client.MockDesigner{FixturePath: "../../testdata/design_sort.json"}
 	tests := testkit.NewRunner()
 	fitness := core.NewWeightedFitness(map[string]float64{
 		"correctness": 0.8,
@@ -34,7 +35,8 @@ func TestHeavySolve_WithMockDesigner(t *testing.T) {
 	}, 0.01)
 	critic := &mockCritic{}
 	mutator := &mockMutator{}
-	tel := telemetry.NewTelemetry()
+	// Use global telemetry to avoid duplicate metrics registration
+	tel := GetGlobalTelemetry()
 
 	worker := NewHeavyWorker(kb, designer, tests, fitness, critic, mutator, tel)
 
