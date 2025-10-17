@@ -332,9 +332,9 @@ func Tokenize(input string) []Token {
 				pos++
 			}
 			tokens = append(tokens, Token{Type: TokenNumber, Value: input[start:pos], Pos: start})
-		case isAlpha(char) || char == '_' || char == '?' || char == '!':
-			// Symbol or keyword
-			for pos < len(input) && (isAlpha(input[pos]) || isDigit(input[pos]) || input[pos] == '_' || input[pos] == '?' || input[pos] == '!' || input[pos] == '-') {
+		case isAlpha(char) || char == '_' || char == '?' || char == '!' || char == '<' || char == '>' || char == '=' || char == '+' || char == '-' || char == '*' || char == '/' || char == '%':
+			// Symbol, keyword, or operator
+			for pos < len(input) && (isAlpha(input[pos]) || isDigit(input[pos]) || input[pos] == '_' || input[pos] == '?' || input[pos] == '!' || input[pos] == '-' || input[pos] == '<' || input[pos] == '>' || input[pos] == '=' || input[pos] == '+' || input[pos] == '*' || input[pos] == '/' || input[pos] == '%') {
 				pos++
 			}
 			value := input[start:pos]

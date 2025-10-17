@@ -13,17 +13,28 @@ Constraints:
 - Respect input/output schemas.
 - Prefer simple/fast solutions; include complexity estimates.
 - Provide both unit tests (with oracle) and property tests (checks).
-- Code must be in AF-DSL (S-expr) with entry (program) and well-typed nodes: SEQ, IF, LOOP, CALL, LET, RETURN, ASSERT.
+- Code must be in AF-DSL using JSON AST format instead of S-expressions.
  - Output MUST be a single valid JSON object with no extraneous text before/after.
  - Use strict JSON (no comments, trailing commas, NaN/Infinity, or unescaped control chars).
- - Populate code.src with a single top-level S-expression starting with (program ...).
- - Ensure code.src parentheses are balanced: the count of '(' equals the count of ')'.
- - Escape any double quotes inside code.src as \" so the JSON stays valid.
+ - Populate code.ast with a JSON AST structure instead of code.src.
  - Do not wrap JSON in code fences/backticks; return raw JSON only.
+
+AF-DSL JSON AST Format:
+- Root node: {"type": "program", "children": [...]}
+- Node types: "let", "if", "call", "return", "loop", "assert", "var", "literal", "array"
+- Variables: {"type": "var", "value": "variable_name"}
+- Literals: {"type": "literal", "value": "string_or_number"}
+- Function calls: {"type": "call", "args": [{"type": "var", "value": "function_name"}, ...]}
+- Let bindings: {"type": "let", "children": [variable_node, value_node, body_node]}
+- Conditionals: {"type": "if", "children": [condition_node, then_node, else_node]}
+- Returns: {"type": "return", "children": [value_node]}
+- Arrays: {"type": "array", "children": [...]}
+
+IMPORTANT: The root "program" node must use "children" array, not "value" object.
 
 Self-check before answering:
 - Verify your JSON parses.
-- Verify code.src is a valid S-expression with balanced parentheses and a (program ...) root.
+- Verify code.ast has proper structure with "program" root.
 
 Output JSON schema:
 {
@@ -37,7 +48,10 @@ Output JSON schema:
   "code": {
     "lang": "af-dsl",
     "entry": "program",
-    "src": "string with S-expr program"
+    "ast": {
+      "type": "program",
+      "children": [...]
+    }
   },
   "evaluation": {
     "metrics": ["correctness","time","size"],

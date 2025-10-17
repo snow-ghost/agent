@@ -28,9 +28,10 @@ func createValidDesignForValidation() HypothesisDesign {
 			},
 		},
 		Code: struct {
-			Lang  string `json:"lang"`
-			Entry string `json:"entry"`
-			Src   string `json:"src"`
+			Lang  string        `json:"lang"`
+			Entry string        `json:"entry"`
+			Src   string        `json:"src"`
+			AST   *AFDSLProgram `json:"ast,omitempty"`
 		}{
 			Lang:  "af-dsl",
 			Entry: "program",
@@ -206,5 +207,47 @@ func TestValidateAFDSLSecurity_TooLongNumber(t *testing.T) {
 	err := Validate(hd)
 	if err == nil {
 		t.Error("Expected error for too long number, got nil")
+	}
+}
+
+func TestValidateAFDSLSecurity_ComparisonOperators(t *testing.T) {
+	// Test that comparison operators are now allowed
+	testCases := []string{
+		"(let x input (if (call (<= x 5) (return \"small\") (return \"large\"))))",
+		"(let x input (if (call (>= x 10) (return \"big\") (return \"small\"))))",
+		"(let x input (if (call (< x 0) (return \"negative\") (return \"positive\"))))",
+		"(let x input (if (call (> x 100) (return \"huge\") (return \"normal\"))))",
+		"(let x input (if (call (= x 42) (return \"answer\") (return \"not-answer\"))))",
+		"(let x input (if (call (!= x 0) (return \"non-zero\") (return \"zero\"))))",
+		"(let x input (if (call (== x 1) (return \"one\") (return \"not-one\"))))",
+	}
+
+	for i, code := range testCases {
+		hd := createValidDesignForValidation()
+		hd.Code.Src = code
+
+		err := Validate(hd)
+		if err != nil {
+			t.Errorf("Test case %d: Expected no error for comparison operator code, got: %v", i+1, err)
+		}
+	}
+}
+func TestValidateAFDSLSecurity_SimpleComparison(t *testing.T) {
+	hd := createValidDesignForValidation()
+	hd.Code.Src = "(<= x 5)"
+
+	err := Validate(hd)
+	if err != nil {
+		t.Errorf("Expected no error for comparison operator code, got: %v", err)
+	}
+}
+
+func TestValidateAFDSLSecurity_ComplexComparison(t *testing.T) {
+	hd := createValidDesignForValidation()
+	hd.Code.Src = "(let x input (if (call (<= x 5) (return \"small\") (return \"large\"))))"
+
+	err := Validate(hd)
+	if err != nil {
+		t.Errorf("Expected no error for complex comparison operator code, got: %v", err)
 	}
 }

@@ -84,6 +84,8 @@ func (p *Parser) parseList() (Node, error) {
 	p.advance()
 
 	switch op {
+	case "program":
+		return p.parseProgram()
 	case "seq":
 		return p.parseSeq()
 	case "let":
@@ -98,9 +100,37 @@ func (p *Parser) parseList() (Node, error) {
 		return p.parseCall()
 	case "assert":
 		return p.parseAssert()
+	case "get":
+		return p.parseGet()
 	default:
 		return nil, fmt.Errorf("unknown operation: %s at position %d", op, p.current().Pos)
 	}
+}
+
+// parseProgram parses a program (top-level wrapper)
+func (p *Parser) parseProgram() (Node, error) {
+	var statements []Node
+
+	for p.current().Type != TokenRParen && p.current().Type != TokenEOF {
+		stmt, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, stmt)
+	}
+
+	if p.current().Type != TokenRParen {
+		return nil, fmt.Errorf("expected ')' after program, got %s at position %d", p.current().Value, p.current().Pos)
+	}
+
+	p.advance() // consume closing parenthesis
+
+	// If there's only one statement, return it directly
+	if len(statements) == 1 {
+		return statements[0], nil
+	}
+
+	return &SeqNode{Statements: statements}, nil
 }
 
 // parseSeq parses a sequence
@@ -148,6 +178,11 @@ func (p *Parser) parseArray() (Node, error) {
 
 // parseLet parses a let binding
 func (p *Parser) parseLet() (Node, error) {
+	// Check if this is an empty let expression
+	if p.current().Type == TokenRParen {
+		return nil, fmt.Errorf("let expression cannot be empty")
+	}
+
 	// Parse variable name
 	if p.current().Type != TokenSymbol {
 		return nil, fmt.Errorf("expected variable name after 'let', got %s at position %d", p.current().Value, p.current().Pos)
@@ -155,16 +190,28 @@ func (p *Parser) parseLet() (Node, error) {
 	name := p.current().Value
 	p.advance()
 
+	// Check if we have more arguments
+	if p.current().Type == TokenRParen {
+		return nil, fmt.Errorf("let expression must have at least a value, got empty after variable name")
+	}
+
 	// Parse value
 	value, err := p.parseExpression()
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse body
-	body, err := p.parseExpression()
-	if err != nil {
-		return nil, err
+	// Check if we have a body
+	var body Node
+	if p.current().Type != TokenRParen {
+		// Parse body
+		body, err = p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// If no body, create a simple return statement
+		body = &ReturnNode{Value: &VarNode{Name: name}}
 	}
 
 	if p.current().Type != TokenRParen {
@@ -288,6 +335,28 @@ func (p *Parser) parseAssert() (Node, error) {
 
 	p.advance() // consume closing parenthesis
 	return &AssertNode{Condition: condition, Message: message}, nil
+}
+
+// parseGet parses a get operation
+func (p *Parser) parseGet() (Node, error) {
+	// Parse object
+	obj, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse key
+	key, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.current().Type != TokenRParen {
+		return nil, fmt.Errorf("expected ')' after get, got %s at position %d", p.current().Value, p.current().Pos)
+	}
+
+	p.advance() // consume closing parenthesis
+	return &CallNode{Function: "get", Args: []Node{obj, key}}, nil
 }
 
 // parseSymbol parses a symbol (variable reference)

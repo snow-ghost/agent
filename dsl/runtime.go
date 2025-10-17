@@ -267,6 +267,12 @@ func (r *Runtime) callBuiltin(ctx context.Context, name string, args []Value) (V
 		return r.builtinMap(args)
 	case "filter":
 		return r.builtinFilter(args)
+	case "merge_sort":
+		return r.builtinMergeSort(args)
+	case "get":
+		return r.builtinGet(args)
+	case "make-object":
+		return r.builtinMakeObject(args)
 	default:
 		return nil, fmt.Errorf("unknown function: %s", name)
 	}
@@ -563,6 +569,88 @@ func (r *Runtime) builtinFilter(args []Value) (Value, error) {
 
 	// For now, just return the list (simplified implementation)
 	return list, nil
+}
+
+// builtinMergeSort implements merge sort algorithm
+func (r *Runtime) builtinMergeSort(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("merge_sort expects 1 argument, got %d", len(args))
+	}
+
+	list, ok := args[0].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("merge_sort expects a list, got %T", args[0])
+	}
+
+	if len(list) <= 1 {
+		return list, nil
+	}
+
+	// Split the list
+	mid := len(list) / 2
+	left := list[:mid]
+	right := list[mid:]
+
+	// Recursively sort both halves
+	leftSorted, err := r.builtinMergeSort([]Value{left})
+	if err != nil {
+		return nil, err
+	}
+
+	rightSorted, err := r.builtinMergeSort([]Value{right})
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge the sorted halves
+	merged, err := r.builtinMerge([]Value{leftSorted, rightSorted})
+	if err != nil {
+		return nil, err
+	}
+
+	return merged, nil
+}
+
+// builtinGet gets a value from a map by key
+func (r *Runtime) builtinGet(args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("get expects 2 arguments, got %d", len(args))
+	}
+
+	obj, ok := args[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("get expects a map as first argument, got %T", args[0])
+	}
+
+	key, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("get expects a string as second argument, got %T", args[1])
+	}
+
+	value, exists := obj[key]
+	if !exists {
+		return nil, fmt.Errorf("key %s not found in map", key)
+	}
+
+	return value, nil
+}
+
+// builtinMakeObject creates an object with a key-value pair
+func (r *Runtime) builtinMakeObject(args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("make-object expects 2 arguments, got %d", len(args))
+	}
+
+	key, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("make-object expects a string as first argument, got %T", args[0])
+	}
+
+	value := args[1]
+
+	return map[string]interface{}{
+		key: value,
+	}, nil
 }
 
 // isTruthy checks if a value is truthy

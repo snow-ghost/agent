@@ -60,9 +60,10 @@ func TestHeavyWorker_Solve_WithValidDesign(t *testing.T) {
 				},
 			},
 			Code: struct {
-				Lang  string `json:"lang"`
-				Entry string `json:"entry"`
-				Src   string `json:"src"`
+				Lang  string               `json:"lang"`
+				Entry string               `json:"entry"`
+				Src   string               `json:"src"`
+				AST   *design.AFDSLProgram `json:"ast,omitempty"`
 			}{
 				Lang:  "af-dsl",
 				Entry: "program",

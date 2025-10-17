@@ -13,9 +13,10 @@ type HypothesisDesign struct {
 		} `json:"complexity"`
 	} `json:"algorithm"`
 	Code struct {
-		Lang  string `json:"lang"`  // "af-dsl" | "wasm"
-		Entry string `json:"entry"` // "program"
-		Src   string `json:"src"`   // S-expr or base64 wasm
+		Lang  string        `json:"lang"`          // "af-dsl" | "wasm"
+		Entry string        `json:"entry"`         // "program"
+		Src   string        `json:"src"`           // S-expr or base64 wasm (deprecated for af-dsl)
+		AST   *AFDSLProgram `json:"ast,omitempty"` // JSON AST for af-dsl
 	} `json:"code"`
 	Evaluation struct {
 		Metrics       []string `json:"metrics"`

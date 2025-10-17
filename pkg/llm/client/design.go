@@ -207,11 +207,20 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 			},
 			"code": map[string]interface{}{
 				"type":     "object",
-				"required": []string{"lang", "entry", "src"},
+				"required": []string{"lang", "entry"},
 				"properties": map[string]interface{}{
 					"lang":  map[string]interface{}{"type": "string", "enum": []string{"af-dsl"}},
 					"entry": map[string]interface{}{"type": "string", "enum": []string{"program"}},
 					"src":   map[string]interface{}{"type": "string"},
+					"ast": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"type":     map[string]interface{}{"type": "string"},
+							"value":    map[string]interface{}{},
+							"children": map[string]interface{}{"type": "array"},
+							"args":     map[string]interface{}{"type": "array"},
+						},
+					},
 				},
 				"additionalProperties": false,
 			},
@@ -337,6 +346,11 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&hypothesis); err != nil {
 		return design.HypothesisDesign{}, rawResponse, fmt.Errorf("failed to parse design JSON: %w", err)
+	}
+
+	// If AST is provided, convert it to S-expression for backward compatibility
+	if hypothesis.Code.AST != nil {
+		hypothesis.Code.Src = hypothesis.Code.AST.ToAFDSL()
 	}
 
 	// Validate the design

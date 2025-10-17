@@ -14,6 +14,7 @@ import (
 	"github.com/snow-ghost/agent/dsl"
 	"github.com/snow-ghost/agent/pkg/llm/client"
 	"github.com/snow-ghost/agent/prompts"
+	"github.com/snow-ghost/agent/testkit"
 	"github.com/snow-ghost/agent/worker/capabilities"
 	"github.com/snow-ghost/agent/worker/common"
 	"github.com/snow-ghost/agent/worker/metrics"
@@ -129,6 +130,11 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 	unitTests := design.ToTestCases(hd)
 	slog.InfoContext(ctx, "converted design", "task_id", task.ID, "lang", hypothesis.Lang, "unit_tests", len(unitTests))
 
+	// Log the generated AF-DSL code for debugging
+	if hypothesis.Lang == "af-dsl" {
+		slog.InfoContext(ctx, "generated AF-DSL code", "task_id", task.ID, "code", string(hypothesis.Bytes))
+	}
+
 	// 5) Generate property test cases if property plan exists
 	var allTests []core.TestCase
 	allTests = append(allTests, unitTests...)
@@ -160,6 +166,16 @@ func (h *HeavyWorker) Solve(ctx context.Context, task core.Task) (core.Result, e
 		slog.ErrorContext(ctx, "test run failed", "error", err, "task_id", task.ID)
 		h.LogTaskEnd(ctx, task, core.Result{Success: false}, time.Since(start), 0)
 		return core.Result{Success: false}, err
+	}
+
+	// Log detailed test results if tests failed
+	if !pass {
+		if detailedRunner, ok := h.tests.(*testkit.DetailedRunner); ok {
+			failedDetails := detailedRunner.GetFailedTestDetails()
+			if len(failedDetails) > 0 {
+				slog.WarnContext(ctx, "test failures details", "task_id", task.ID, "failed_tests", failedDetails)
+			}
+		}
 	}
 
 	// 8) Evaluate fitness and compare with PassThreshold

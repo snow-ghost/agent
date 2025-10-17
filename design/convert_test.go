@@ -270,9 +270,10 @@ func createValidDesign() HypothesisDesign {
 			},
 		},
 		Code: struct {
-			Lang  string `json:"lang"`
-			Entry string `json:"entry"`
-			Src   string `json:"src"`
+			Lang  string        `json:"lang"`
+			Entry string        `json:"entry"`
+			Src   string        `json:"src"`
+			AST   *AFDSLProgram `json:"ast,omitempty"`
 		}{
 			Lang:  "af-dsl",
 			Entry: "program",

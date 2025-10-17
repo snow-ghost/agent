@@ -2,6 +2,7 @@ package design
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,30 @@ var allowedFunctions = map[string]bool{
 	"concat":    true,
 	"map":       true,
 	"filter":    true,
+	// Array/list functions
+	"length":     true,
+	"slice":      true,
+	"append":     true,
+	"prepend":    true,
+	"head":       true,
+	"tail":       true,
+	"merge-sort": true,
+	// Arithmetic operators
+	"div": true,
+	"mod": true,
+	"+":   true,
+	"-":   true,
+	"*":   true,
+	"/":   true,
+	"%":   true,
+	// Comparison operators
+	"<=": true,
+	">=": true,
+	"==": true,
+	"!=": true,
+	"<":  true,
+	">":  true,
+	"=":  true,
 	// Control flow
 	"if":     true,
 	"let":    true,
@@ -97,9 +122,10 @@ func validateAlgorithm(alg struct {
 }
 
 func validateCode(code struct {
-	Lang  string `json:"lang"`  // "af-dsl" | "wasm"
-	Entry string `json:"entry"` // "program"
-	Src   string `json:"src"`   // S-expr or base64 wasm
+	Lang  string        `json:"lang"`          // "af-dsl" | "wasm"
+	Entry string        `json:"entry"`         // "program"
+	Src   string        `json:"src"`           // S-expr or base64 wasm
+	AST   *AFDSLProgram `json:"ast,omitempty"` // JSON AST for af-dsl
 }) error {
 	// Check language
 	if code.Lang != "af-dsl" && code.Lang != "wasm" {
@@ -131,8 +157,139 @@ func validateCode(code struct {
 
 	// For af-dsl, validate security constraints
 	if code.Lang == "af-dsl" {
-		if err := validateAFDSLSecurity(code.Src); err != nil {
-			return fmt.Errorf("af-dsl security validation failed: %w", err)
+		// If AST is provided, validate it instead of S-expression
+		if code.AST != nil {
+			if err := validateAFDSLAST(code.AST); err != nil {
+				return fmt.Errorf("af-dsl AST validation failed: %w", err)
+			}
+		} else if code.Src != "" {
+			// Fallback to S-expression validation
+			if err := validateAFDSLSecurity(code.Src); err != nil {
+				return fmt.Errorf("af-dsl security validation failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("af-dsl code must have either AST or src")
+		}
+	}
+
+	return nil
+}
+
+// validateAFDSLAST validates AF-DSL AST structure and security constraints
+func validateAFDSLAST(ast *AFDSLProgram) error {
+	// Validate AST structure
+	if err := ast.ValidateAFDSLAST(); err != nil {
+		return fmt.Errorf("AST structure validation failed: %w", err)
+	}
+
+	// Additional validation for common LLM errors
+	if err := validateASTForCommonErrors(ast); err != nil {
+		return fmt.Errorf("AST common errors validation failed: %w", err)
+	}
+
+	// Validate security constraints by converting to S-expression and validating
+	afdslCode := ast.ToAFDSL()
+	if err := validateAFDSLSecurity(afdslCode); err != nil {
+		return fmt.Errorf("AST security validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// validateASTForCommonErrors validates for common LLM generation errors
+func validateASTForCommonErrors(ast *AFDSLProgram) error {
+	// Handle case where LLM generates "value" instead of "children" for the root program node
+	var children []*AFDSLNode
+	if len(ast.Children) > 0 {
+		children = ast.Children
+	} else if ast.Value != nil {
+		// Try to parse the value as a single node
+		if valueMap, ok := ast.Value.(map[string]interface{}); ok {
+			// Create a temporary node from the value
+			tempNode := &AFDSLNode{}
+			if valueBytes, err := json.Marshal(valueMap); err == nil {
+				if err := json.Unmarshal(valueBytes, tempNode); err == nil {
+					children = []*AFDSLNode{tempNode}
+				}
+			}
+		}
+	}
+
+	// Check if the program has any children
+	if len(children) == 0 {
+		return fmt.Errorf("program must have at least one child node")
+	}
+
+	// Validate each child node
+	for i, child := range children {
+		if err := validateNodeForCommonErrors(child, fmt.Sprintf("program.children[%d]", i)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateNodeForCommonErrors validates a single node for common errors
+func validateNodeForCommonErrors(node *AFDSLNode, path string) error {
+	switch node.Type {
+	case NodeTypeLet:
+		// Let nodes must have at least 2 children (variable and value)
+		if len(node.Children) < 2 {
+			return fmt.Errorf("%s: let node must have at least 2 children (variable and value), got %d", path, len(node.Children))
+		}
+
+		// First child must be a variable
+		if node.Children[0].Type != NodeTypeVar {
+			return fmt.Errorf("%s: let node first child must be a variable, got %s", path, node.Children[0].Type)
+		}
+
+		// Variable must have a value
+		if node.Children[0].Value == nil || node.Children[0].Value == "" {
+			return fmt.Errorf("%s: let node variable must have a name", path)
+		}
+
+	case NodeTypeCall:
+		// Call nodes must have at least one argument (function name)
+		if len(node.Args) == 0 {
+			return fmt.Errorf("%s: call node must have at least one argument (function name)", path)
+		}
+
+		// First argument must be a variable (function name)
+		if node.Args[0].Type != NodeTypeVar {
+			return fmt.Errorf("%s: call node first argument must be a variable (function name), got %s", path, node.Args[0].Type)
+		}
+
+	case NodeTypeIf:
+		// If nodes must have at least 2 children (condition and then)
+		if len(node.Children) < 2 {
+			return fmt.Errorf("%s: if node must have at least 2 children (condition and then), got %d", path, len(node.Children))
+		}
+
+	case NodeTypeVar:
+		// Variable nodes must have a value
+		if node.Value == nil || node.Value == "" {
+			return fmt.Errorf("%s: var node must have a value (variable name)", path)
+		}
+
+	case NodeTypeLiteral:
+		// Literal nodes must have a value
+		if node.Value == nil {
+			return fmt.Errorf("%s: literal node must have a value", path)
+		}
+	}
+
+	// Recursively validate children
+	for i, child := range node.Children {
+		if err := validateNodeForCommonErrors(child, fmt.Sprintf("%s.children[%d]", path, i)); err != nil {
+			return err
+		}
+	}
+
+	// Recursively validate args
+	for i, arg := range node.Args {
+		if err := validateNodeForCommonErrors(arg, fmt.Sprintf("%s.args[%d]", path, i)); err != nil {
+			return err
 		}
 	}
 
@@ -267,7 +424,7 @@ func validateAFDSLSecurity(src string) error {
 // validateSExpression validates S-expression structure and security constraints
 func validateSExpression(src string) error {
 	// Tokenize the input
-	tokens, err := tokenizeSExpression(src)
+	tokens, err := TokenizeSExpression(src)
 	if err != nil {
 		return fmt.Errorf("failed to tokenize S-expression: %w", err)
 	}
@@ -309,8 +466,8 @@ const (
 	TokenBoolean
 )
 
-// tokenizeSExpression tokenizes an S-expression string
-func tokenizeSExpression(src string) ([]Token, error) {
+// TokenizeSExpression tokenizes an S-expression string
+func TokenizeSExpression(src string) ([]Token, error) {
 	var tokens []Token
 	runes := []rune(src)
 
@@ -342,7 +499,7 @@ func tokenizeSExpression(src string) ([]Token, error) {
 			}
 			tokens = append(tokens, Token{Type: TokenString, Value: string(runes[start : i+1])})
 		default:
-			// Symbol, number, or boolean
+			// Symbol, number, boolean, or operator
 			start := i
 			for i < len(runes) && runes[i] != ' ' && runes[i] != '\t' && runes[i] != '\n' && runes[i] != '\r' && runes[i] != '(' && runes[i] != ')' {
 				i++
@@ -426,6 +583,14 @@ func validateToken(token Token, position int) error {
 func isValidIdentifier(s string) bool {
 	if s == "" {
 		return false
+	}
+
+	// Check for comparison operators (special case)
+	comparisonOps := []string{"<=", ">=", "==", "!=", "<", ">", "=", "+", "-", "*", "/", "%"}
+	for _, op := range comparisonOps {
+		if s == op {
+			return true
+		}
 	}
 
 	// Must start with letter or allowed symbol
