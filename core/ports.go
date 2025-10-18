@@ -22,12 +22,14 @@ type LLMClient interface {
 
 // LLMOptions holds options for LLM requests
 type LLMOptions struct {
-	Model        string
-	Temperature  float32
-	MaxTokens    int
-	Caller       string
-	SystemPrompt string
-	Tools        []Tool
+	Model            string
+	Temperature      float32
+	TopP             float32
+	FrequencyPenalty float32
+	MaxTokens        int
+	Caller           string
+	SystemPrompt     string
+	Tools            []Tool
 }
 
 // Tool represents a tool that can be called by the LLM

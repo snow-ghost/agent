@@ -2,6 +2,7 @@ package heavy
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -19,6 +20,21 @@ type noopKB struct{}
 
 func (n *noopKB) Find(task core.Task) []core.Skill { return nil }
 func (n *noopKB) SaveHypothesis(ctx context.Context, h core.Hypothesis, score float64) error {
+	slog.InfoContext(ctx, "noopKB: SaveHypothesis called",
+		"hypothesis_id", h.ID,
+		"source", h.Source,
+		"lang", h.Lang,
+		"score", score,
+		"bytes_size", len(h.Bytes),
+		"meta_keys", len(h.Meta))
+
+	// Log metadata details if present
+	if len(h.Meta) > 0 {
+		slog.DebugContext(ctx, "noopKB: hypothesis metadata",
+			"hypothesis_id", h.ID,
+			"metadata", h.Meta)
+	}
+
 	return nil
 }
 

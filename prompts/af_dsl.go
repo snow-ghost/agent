@@ -30,6 +30,36 @@ AF-DSL JSON AST Format:
 - Returns: {"type": "return", "children": [value_node]}
 - Arrays: {"type": "array", "children": [...]}
 
+IMPORTANT: To access input data, use (get input "field_name") where "field_name" matches the input schema properties.
+Example: If input schema has "numbers" property, use (get input "numbers") to access the array.
+
+Example AF-DSL program for sorting:
+{
+  "type": "program",
+  "children": [
+    {
+      "type": "let",
+      "children": [
+        {"type": "var", "value": "numbers"},
+        {"type": "call", "args": [{"type": "var", "value": "get"}, {"type": "var", "value": "input"}, {"type": "literal", "value": "numbers"}]},
+        {
+          "type": "let",
+          "children": [
+            {"type": "var", "value": "sorted"},
+            {"type": "call", "args": [{"type": "var", "value": "merge_sort"}, {"type": "var", "value": "numbers"}]},
+            {
+              "type": "return",
+              "children": [
+                {"type": "call", "args": [{"type": "var", "value": "make-object"}, {"type": "literal", "value": "sorted"}, {"type": "var", "value": "sorted"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
 IMPORTANT: The root "program" node must use "children" array, not "value" object.
 
 Self-check before answering:

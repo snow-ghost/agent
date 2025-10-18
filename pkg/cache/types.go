@@ -50,13 +50,14 @@ func DefaultCacheConfig() *CacheConfig {
 
 // CacheRequest represents a request with caching options
 type CacheRequest struct {
-	Model       string            `json:"model"`
-	Messages    []core.Message    `json:"messages"`
-	Temperature float32           `json:"temperature,omitempty"`
-	TopP        float32           `json:"top_p,omitempty"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Tools       []core.Tool       `json:"tools,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Model            string            `json:"model"`
+	Messages         []core.Message    `json:"messages"`
+	Temperature      float32           `json:"temperature,omitempty"`
+	TopP             float32           `json:"top_p,omitempty"`
+	FrequencyPenalty float32           `json:"frequency_penalty,omitempty"`
+	MaxTokens        int               `json:"max_tokens,omitempty"`
+	Tools            []core.Tool       `json:"tools,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
 
 	// Cache options
 	Cache bool          `json:"cache,omitempty"`
@@ -67,20 +68,22 @@ type CacheRequest struct {
 func GenerateKey(req CacheRequest) (CacheKey, error) {
 	// Create a normalized version of the request for hashing
 	normalized := struct {
-		Model       string         `json:"model"`
-		Messages    []core.Message `json:"messages"`
-		Temperature float32        `json:"temperature"`
-		TopP        float32        `json:"top_p"`
-		MaxTokens   int            `json:"max_tokens"`
-		Tools       []core.Tool    `json:"tools"`
+		Model            string         `json:"model"`
+		Messages         []core.Message `json:"messages"`
+		Temperature      float32        `json:"temperature"`
+		TopP             float32        `json:"top_p"`
+		FrequencyPenalty float32        `json:"frequency_penalty"`
+		MaxTokens        int            `json:"max_tokens"`
+		Tools            []core.Tool    `json:"tools"`
 		// Exclude metadata and cache options from key
 	}{
-		Model:       req.Model,
-		Messages:    req.Messages,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		MaxTokens:   req.MaxTokens,
-		Tools:       req.Tools,
+		Model:            req.Model,
+		Messages:         req.Messages,
+		Temperature:      req.Temperature,
+		TopP:             req.TopP,
+		FrequencyPenalty: req.FrequencyPenalty,
+		MaxTokens:        req.MaxTokens,
+		Tools:            req.Tools,
 	}
 
 	// Serialize to JSON

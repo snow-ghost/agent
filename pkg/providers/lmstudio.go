@@ -79,12 +79,13 @@ func (p *LMStudioProvider) Chat(ctx context.Context, mc registry.ModelConfig, re
 
 	// Build request
 	request := openai.ChatCompletionRequest{
-		Model:       mc.ID,
-		Messages:    messages,
-		Temperature: chatReq.Temperature,
-		TopP:        chatReq.TopP,
-		MaxTokens:   chatReq.MaxTokens,
-		Stream:      chatReq.Stream,
+		Model:            mc.ID,
+		Messages:         messages,
+		Temperature:      chatReq.Temperature,
+		TopP:             chatReq.TopP,
+		FrequencyPenalty: chatReq.FrequencyPenalty,
+		MaxTokens:        chatReq.MaxTokens,
+		Stream:           chatReq.Stream,
 	}
 
 	// If response_format is provided, send a raw HTTP request to include it (client may not support it)
@@ -95,13 +96,14 @@ func (p *LMStudioProvider) Chat(ctx context.Context, mc registry.ModelConfig, re
 			Name    string `json:"name,omitempty"`
 		}
 		payload := map[string]interface{}{
-			"model":           mc.ID,
-			"messages":        []rawMessage{},
-			"temperature":     chatReq.Temperature,
-			"top_p":           chatReq.TopP,
-			"max_tokens":      chatReq.MaxTokens,
-			"stream":          chatReq.Stream,
-			"response_format": chatReq.ResponseFormat,
+			"model":             mc.ID,
+			"messages":          []rawMessage{},
+			"temperature":       chatReq.Temperature,
+			"top_p":             chatReq.TopP,
+			"frequency_penalty": chatReq.FrequencyPenalty,
+			"max_tokens":        chatReq.MaxTokens,
+			"stream":            chatReq.Stream,
+			"response_format":   chatReq.ResponseFormat,
 		}
 		msgs := make([]rawMessage, len(chatReq.Messages))
 		for i, m := range chatReq.Messages {

@@ -155,13 +155,15 @@ func NewDesignClientFromEnv() *DesignClient {
 
 // DesignRequest represents a design request to the LLM router
 type DesignRequest struct {
-	Model          string                 `json:"model"`
-	Messages       []core.Message         `json:"messages"`
-	ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
-	Caller         string                 `json:"caller,omitempty"`
-	Metadata       map[string]string      `json:"metadata,omitempty"`
-	MaxTokens      int                    `json:"max_tokens,omitempty"`
-	Temperature    float32                `json:"temperature,omitempty"`
+	Model            string                 `json:"model"`
+	Messages         []core.Message         `json:"messages"`
+	ResponseFormat   map[string]interface{} `json:"response_format,omitempty"`
+	Caller           string                 `json:"caller,omitempty"`
+	Metadata         map[string]string      `json:"metadata,omitempty"`
+	MaxTokens        int                    `json:"max_tokens,omitempty"`
+	Temperature      float32                `json:"temperature,omitempty"`
+	TopP             float32                `json:"top_p,omitempty"`
+	FrequencyPenalty float32                `json:"frequency_penalty,omitempty"`
 }
 
 // DesignResponse represents a design response from the LLM router
@@ -290,8 +292,10 @@ func (c *DesignClient) Design(ctx context.Context, taskJSON string) (design.Hypo
 		Metadata: map[string]string{
 			"task_domain": "algorithm_design",
 		},
-		MaxTokens:   4096,
-		Temperature: 0.7,
+		MaxTokens:        2048,
+		Temperature:      0.7,
+		TopP:             0.9,
+		FrequencyPenalty: 0.5,
 	}
 
 	// Marshal request

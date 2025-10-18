@@ -73,12 +73,13 @@ func (p *OpenAIProvider) Chat(ctx context.Context, mc registry.ModelConfig, req 
 
 	// Build request
 	request := openai.ChatCompletionRequest{
-		Model:       mc.ID,
-		Messages:    messages,
-		Temperature: chatReq.Temperature,
-		TopP:        chatReq.TopP,
-		MaxTokens:   chatReq.MaxTokens,
-		Stream:      chatReq.Stream,
+		Model:            mc.ID,
+		Messages:         messages,
+		Temperature:      chatReq.Temperature,
+		TopP:             chatReq.TopP,
+		FrequencyPenalty: chatReq.FrequencyPenalty,
+		MaxTokens:        chatReq.MaxTokens,
+		Stream:           chatReq.Stream,
 	}
 
 	if len(tools) > 0 {

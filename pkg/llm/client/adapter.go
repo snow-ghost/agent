@@ -24,10 +24,12 @@ func NewAdapter(client *Client) *Adapter {
 func (a *Adapter) Generate(ctx context.Context, prompt string, options core.LLMOptions) (string, error) {
 	// Convert core.LLMOptions to client.ChatRequest
 	req := ChatRequest{
-		Model:       options.Model,
-		Temperature: options.Temperature,
-		MaxTokens:   options.MaxTokens,
-		Caller:      options.Caller,
+		Model:            options.Model,
+		Temperature:      options.Temperature,
+		TopP:             options.TopP,
+		FrequencyPenalty: options.FrequencyPenalty,
+		MaxTokens:        options.MaxTokens,
+		Caller:           options.Caller,
 		Messages: []routercore.Message{
 			{
 				Role:    "user",
@@ -87,11 +89,13 @@ func (a *Adapter) GenerateWithTools(ctx context.Context, prompt string, tools []
 
 	// Create request
 	req := ChatRequest{
-		Model:       options.Model,
-		Temperature: options.Temperature,
-		MaxTokens:   options.MaxTokens,
-		Caller:      options.Caller,
-		Tools:       routerTools,
+		Model:            options.Model,
+		Temperature:      options.Temperature,
+		TopP:             options.TopP,
+		FrequencyPenalty: options.FrequencyPenalty,
+		MaxTokens:        options.MaxTokens,
+		Caller:           options.Caller,
+		Tools:            routerTools,
 		Messages: []routercore.Message{
 			{
 				Role:    "user",

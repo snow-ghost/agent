@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/snow-ghost/agent/core"
+	"github.com/snow-ghost/agent/design"
 	"github.com/snow-ghost/agent/pkg/llm/client"
 	"github.com/snow-ghost/agent/testkit"
 )
@@ -87,13 +88,19 @@ func TestHeavySolve_WithRealLLM(t *testing.T) {
 		}
 	}`
 
-	hypothesis, rawResponse, err := designer.Design(ctx, taskJSON)
+	hd, rawResponse, err := designer.Design(ctx, taskJSON)
 	if err != nil {
 		t.Logf("Design failed: %v", err)
 		t.Logf("Raw LLM response: %s", string(rawResponse))
 	} else {
 		t.Logf("Design succeeded!")
-		t.Logf("Generated AF-DSL code: %s", hypothesis.Code.Src)
+		// Convert to hypothesis to get the generated code
+		hypothesis, err := design.ToHypothesis(hd)
+		if err != nil {
+			t.Logf("Failed to convert design to hypothesis: %v", err)
+		} else {
+			t.Logf("Generated AF-DSL code: %s", string(hypothesis.Bytes))
+		}
 	}
 
 	res, err := worker.Solve(ctx, task)

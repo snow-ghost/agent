@@ -44,16 +44,17 @@ type Usage struct {
 
 // ChatRequest represents a chat completion request
 type ChatRequest struct {
-	Model          string                 `json:"model"`
-	Messages       []Message              `json:"messages"`
-	Tools          []Tool                 `json:"tools,omitempty"`
-	ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
-	Temperature    float32                `json:"temperature,omitempty"`
-	TopP           float32                `json:"top_p,omitempty"`
-	MaxTokens      int                    `json:"max_tokens,omitempty"`
-	Stream         bool                   `json:"stream,omitempty"`
-	Caller         string                 `json:"caller,omitempty"` // tenant/project
-	Metadata       map[string]string      `json:"metadata,omitempty"`
+	Model            string                 `json:"model"`
+	Messages         []Message              `json:"messages"`
+	Tools            []Tool                 `json:"tools,omitempty"`
+	ResponseFormat   map[string]interface{} `json:"response_format,omitempty"`
+	Temperature      float32                `json:"temperature,omitempty"`
+	TopP             float32                `json:"top_p,omitempty"`
+	FrequencyPenalty float32                `json:"frequency_penalty,omitempty"`
+	MaxTokens        int                    `json:"max_tokens,omitempty"`
+	Stream           bool                   `json:"stream,omitempty"`
+	Caller           string                 `json:"caller,omitempty"` // tenant/project
+	Metadata         map[string]string      `json:"metadata,omitempty"`
 }
 
 // ChatResponse represents a chat completion response
@@ -68,14 +69,15 @@ type ChatResponse struct {
 
 // CompleteRequest represents a text completion request
 type CompleteRequest struct {
-	Model       string            `json:"model"`
-	Prompt      string            `json:"prompt"`
-	Temperature float32           `json:"temperature,omitempty"`
-	TopP        float32           `json:"top_p,omitempty"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Stream      bool              `json:"stream,omitempty"`
-	Caller      string            `json:"caller,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Model            string            `json:"model"`
+	Prompt           string            `json:"prompt"`
+	Temperature      float32           `json:"temperature,omitempty"`
+	TopP             float32           `json:"top_p,omitempty"`
+	FrequencyPenalty float32           `json:"frequency_penalty,omitempty"`
+	MaxTokens        int               `json:"max_tokens,omitempty"`
+	Stream           bool              `json:"stream,omitempty"`
+	Caller           string            `json:"caller,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
 // CompleteResponse represents a text completion response

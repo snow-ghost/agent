@@ -88,9 +88,10 @@ func (p *OllamaProvider) Chat(ctx context.Context, mc registry.ModelConfig, req 
 		Messages: messages,
 		Stream:   false, // We'll handle streaming separately
 		Options: map[string]interface{}{
-			"temperature": chatReq.Temperature,
-			"top_p":       chatReq.TopP,
-			"num_predict": chatReq.MaxTokens,
+			"temperature":       chatReq.Temperature,
+			"top_p":             chatReq.TopP,
+			"frequency_penalty": chatReq.FrequencyPenalty,
+			"num_predict":       chatReq.MaxTokens,
 		},
 	}
 

@@ -34,6 +34,7 @@ type AnthropicRequest struct {
 	Messages    []AnthropicMessage `json:"messages"`
 	Temperature float32            `json:"temperature,omitempty"`
 	TopP        float32            `json:"top_p,omitempty"`
+	// Note: Anthropic doesn't support frequency_penalty, so it's ignored
 }
 
 // AnthropicResponse represents the response format from Anthropic API

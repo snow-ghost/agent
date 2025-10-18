@@ -21,8 +21,15 @@ func ToHypothesis(hd HypothesisDesign) (core.Hypothesis, error) {
 
 	switch hd.Code.Lang {
 	case "af-dsl":
-		// For AF-DSL, the source is already text
-		codeBytes = []byte(hd.Code.Src)
+		// For AF-DSL, generate S-expression from AST if available, otherwise use Src
+		if hd.Code.AST != nil {
+			// Generate S-expression from JSON AST
+			afdslCode := hd.Code.AST.ToAFDSL()
+			codeBytes = []byte(afdslCode)
+		} else {
+			// Fallback to Src if no AST
+			codeBytes = []byte(hd.Code.Src)
+		}
 	case "wasm":
 		// For WASM, decode base64
 		codeBytes, err = base64.StdEncoding.DecodeString(hd.Code.Src)

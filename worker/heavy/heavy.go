@@ -290,9 +290,20 @@ func (h *HeavyWorker) generatePropertyTests(propertyPlans []struct {
 		// Generate test cases using the property test framework
 		// This is a simplified implementation - in practice you'd use the full property test framework
 		for i := 0; i < count/len(propertyPlans); i++ {
+			// Generate random test data based on the generator
+			var inputData []byte
+			switch plan.Generator {
+			case "list<int>(n<=100)":
+				// Generate a random array of integers
+				inputData = h.generateRandomIntArray(i, 100)
+			default:
+				// Fallback to a simple array
+				inputData = []byte(fmt.Sprintf(`{"numbers": [%d, %d, %d]}`, i, i+1, i+2))
+			}
+
 			testCase := core.TestCase{
 				Name:   fmt.Sprintf("%s_prop_%d", plan.Name, i),
-				Input:  []byte(fmt.Sprintf(`{"generator": "%s"}`, plan.Generator)),
+				Input:  inputData,
 				Checks: plan.Checks,
 				Weight: 1.0,
 			}
@@ -301,6 +312,34 @@ func (h *HeavyWorker) generatePropertyTests(propertyPlans []struct {
 	}
 
 	return testCases
+}
+
+// generateRandomIntArray generates a random array of integers for property testing
+func (h *HeavyWorker) generateRandomIntArray(seed, maxLen int) []byte {
+	// Simple deterministic "random" generation based on seed
+	length := (seed % maxLen) + 1
+	if length == 0 {
+		length = 1
+	}
+
+	var numbers []int
+	for i := 0; i < length; i++ {
+		// Generate numbers based on seed and position
+		num := (seed*7 + i*11) % 100
+		if num < 0 {
+			num = -num
+		}
+		numbers = append(numbers, num)
+	}
+
+	// Convert to JSON
+	jsonStr := fmt.Sprintf(`{"numbers": [%d`, numbers[0])
+	for i := 1; i < len(numbers); i++ {
+		jsonStr += fmt.Sprintf(`, %d`, numbers[i])
+	}
+	jsonStr += "]}"
+
+	return []byte(jsonStr)
 }
 
 // getInterpreter returns the appropriate interpreter based on language
