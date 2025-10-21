@@ -65,7 +65,7 @@ func (q *QdrantVectorStore) ensureCollection(ctx context.Context) error {
 
 	// Check if our collection exists
 	for _, collection := range collections {
-		if collection == q.collection {
+		if collection.Name == q.collection {
 			return nil // Collection already exists
 		}
 	}
@@ -76,7 +76,7 @@ func (q *QdrantVectorStore) ensureCollection(ctx context.Context) error {
 	case "cosine":
 		distance = qdrant.Distance_Cosine
 	case "euclidean":
-		distance = qdrant.Distance_Euclid
+		distance = qdrant.Distance_Euclidean
 	case "dot":
 		distance = qdrant.Distance_Dot
 	default:
@@ -202,12 +202,10 @@ func (q *QdrantVectorStore) Get(ctx context.Context, id string) ([]float32, map[
 
 	// Convert vector back to float32
 	var vector []float32
-	if point.Vectors != nil {
-		if vectorOutput := point.Vectors.GetVector(); vectorOutput != nil {
-			if dense := vectorOutput.GetDense(); dense != nil {
-				vector = make([]float32, len(dense.Data))
-				copy(vector, dense.Data)
-			}
+	if point.Vectors != nil && point.Vectors.Vector != nil {
+		vector = make([]float32, len(point.Vectors.Vector.Vector))
+		for i, v := range point.Vectors.Vector.Vector {
+			vector[i] = float32(v)
 		}
 	}
 

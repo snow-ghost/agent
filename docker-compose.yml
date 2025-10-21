@@ -17,11 +17,12 @@ services:
       - HYPOTHESES_DIR=/app/hypotheses
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ARTIFACTS_DIR=/app/artifacts
-      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-mock}
-      - VECTOR_BACKEND=${VECTOR_BACKEND:-memory}
-      - QDRANT_URL=${QDRANT_URL:-}
+      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-lmstudio}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-qdrant}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234}
       - INDEX_ON_START=${INDEX_ON_START:-true}
     volumes:
       - ./hypotheses:/app/hypotheses
@@ -57,11 +58,12 @@ services:
       - ARTIFACTS_DIR=/app/artifacts
       - SANDBOX_MEM_MB=64
       - TASK_TIMEOUT=60s
-      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-mock}
-      - VECTOR_BACKEND=${VECTOR_BACKEND:-memory}
-      - QDRANT_URL=${QDRANT_URL:-}
+      - EMBEDDINGS_MODE=${EMBEDDINGS_MODE:-lmstudio}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-qdrant}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234}
       - INDEX_ON_START=${INDEX_ON_START:-true}
       # LLM Router configuration
       - LLM_ROUTER_URL=http://llmrouter:9000
@@ -267,8 +269,6 @@ services:
       - qdrant_data:/qdrant/storage
     networks:
       - agent_network
-    profiles:
-      - qdrant
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/health"]

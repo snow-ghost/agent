@@ -8,6 +8,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/prometheus/client_golang v1.23.2
+	github.com/qdrant/go-client v1.15.2
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/sony/gobreaker v1.0.0
 	github.com/stretchr/testify v1.11.1
@@ -43,6 +44,10 @@ require (
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240827150818-7e3bb234dfed // indirect
+	google.golang.org/grpc v1.66.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )

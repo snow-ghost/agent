@@ -1,0 +1,21 @@
+{
+  "id": "string-palindrome",
+  "domain": "algorithms.strings",
+  "description": "Check if a string is a palindrome, handling case and punctuation",
+  "input": {
+    "text": "A man, a plan, a canal: Panama"
+  },
+  "spec": {
+    "props": {
+      "type": "palindrome_check",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"text\": {\"type\": \"string\"}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"is_palindrome\": {\"type\": \"boolean\"}, \"cleaned_text\": {\"type\": \"string\"}}}",
+      "complexity_hint": "complex"
+    }
+  },
+  "budget": {
+    "cpu_millis": 10000,
+    "mem_mb": 256,
+    "timeout": "60s"
+  }
+}

@@ -5,10 +5,14 @@ A Go-based AI agent system that uses evolutionary algorithms and WebAssembly to 
 ## Features
 
 - **Knowledge Base**: In-memory registry of skills with persistence
+- **Vector Database**: Qdrant integration for semantic search and retrieval
 - **WASM Interpreter**: Sandboxed execution using wazero runtime
 - **Evolutionary Algorithm**: Mutates and improves solutions over time
 - **LLM Integration**: Mock LLM client for algorithm proposals
+- **LMStudio Support**: Local LLM integration with Qwen3-4B model
 - **Hypothesis Persistence**: Saves successful solutions for reuse
+- **Test Suite**: Comprehensive test tasks (simple, complex, decomposable)
+- **Management Tools**: CLI tools for Qdrant and task management
 - **Structured Logging**: JSON logs with contextual information
 - **Metrics & Health**: HTTP endpoints for monitoring
 - **Policy Guard**: Security controls and resource limits
@@ -46,13 +50,109 @@ WORKER_PORT=9002 LLM_MODE=mock ./worker-bin
 # Start with artifact-based knowledge base
 ARTIFACTS_DIR=./artifacts ./worker-bin
 
-# Start with vector search enabled
-ARTIFACTS_DIR=./artifacts EMBEDDINGS_MODE=mock VECTOR_BACKEND=memory ./worker-bin
+# Start with Qdrant vector database
+ARTIFACTS_DIR=./artifacts EMBEDDINGS_MODE=lmstudio VECTOR_BACKEND=qdrant ./worker-bin
 ```
 
 The worker will start on port 9002 (or the port specified by `WORKER_PORT`) and provide:
 - `/solve` - POST endpoint for submitting tasks
 - `/health` - Health check endpoint
+
+## Test Suite
+
+The system includes a comprehensive test suite with tasks of varying complexity:
+
+### Running Tests
+
+```bash
+# Run all test tasks
+make test-all-tasks
+
+# Run specific test categories
+make test-simple      # Basic operations (sort, max, reverse, sum, filter)
+make test-complex     # Complex algorithms (fibonacci, prime, binary search)
+make test-decomposable # Multi-step tasks requiring orchestration
+
+# Run individual tasks
+make run-task-sort
+make run-task-fibonacci
+make run-task-pipeline
+
+# Generate test report
+make test-all-tasks-report
+```
+
+### Test Task Structure
+
+Test tasks are JSON files in `testdata/tasks/` with the following structure:
+
+```json
+{
+  "id": "task-identifier",
+  "domain": "algorithms.category",
+  "description": "Task description",
+  "input": {...},
+  "spec": {
+    "props": {
+      "type": "operation_type",
+      "input_schema": "JSON schema",
+      "output_schema": "JSON schema",
+      "complexity_hint": "simple|complex|decomposable"
+    }
+  },
+  "budget": {
+    "cpu_millis": 5000,
+    "mem_mb": 128,
+    "timeout": "30s"
+  }
+}
+```
+
+## Qdrant Vector Database
+
+The system uses Qdrant for vector storage and semantic search:
+
+### Setup
+
+```bash
+# Start Qdrant with Docker
+make qdrant-up
+
+# Reindex artifacts to Qdrant
+make qdrant-reindex
+
+# Check Qdrant status
+make qdrant-stats
+```
+
+### Management Commands
+
+```bash
+# Qdrant operations
+make qdrant-up        # Start Qdrant
+make qdrant-down      # Stop Qdrant
+make qdrant-logs      # View logs
+make qdrant-stats     # Get statistics
+make qdrant-clear     # Clear collection
+make qdrant-reindex   # Reindex artifacts
+make qdrant-query QUERY="search term"  # Search collection
+make qdrant-verify    # Verify consistency
+```
+
+### Using Management Tools
+
+```bash
+# Task runner
+go run ./cmd/task-runner -task ./testdata/tasks/simple/sort_numbers.json -verbose
+
+# Knowledge base manager
+go run ./cmd/kb-manager -action stats
+go run ./cmd/kb-manager -action query -query "sorting algorithm"
+go run ./cmd/kb-manager -action reindex -artifacts-dir ./artifacts
+
+# Test suite runner
+go run ./cmd/test-suite -dir ./testdata/tasks/simple -verbose
+```
 - `/metrics` - Prometheus-compatible metrics
 
 ## Configuration

@@ -1,0 +1,21 @@
+{
+  "id": "filter-even",
+  "domain": "algorithms.arrays",
+  "description": "Filter an array to keep only even numbers",
+  "input": {
+    "numbers": [1, 2, 3, 4, 5, 6, 7, 8]
+  },
+  "spec": {
+    "props": {
+      "type": "filter_even",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"even_numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "complexity_hint": "simple"
+    }
+  },
+  "budget": {
+    "cpu_millis": 5000,
+    "mem_mb": 128,
+    "timeout": "30s"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "sum-array",
+  "domain": "algorithms.arrays",
+  "description": "Calculate the sum of all numbers in an array",
+  "input": {
+    "numbers": [1, 2, 3, 4, 5]
+  },
+  "spec": {
+    "props": {
+      "type": "sum",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"sum\": {\"type\": \"number\"}}}",
+      "complexity_hint": "simple"
+    }
+  },
+  "budget": {
+    "cpu_millis": 5000,
+    "mem_mb": 128,
+    "timeout": "30s"
+  }
+}

@@ -48,6 +48,9 @@ func ExtractFirstJSONObject(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to extract balanced JSON: %w", err)
 	}
 
+	// Try to fix common JSON issues before validation
+	jsonBytes = fixCommonJSONIssues(jsonBytes)
+
 	// Validate that it's valid JSON
 	var testObj map[string]interface{}
 	if err := json.Unmarshal(jsonBytes, &testObj); err != nil {
@@ -55,6 +58,40 @@ func ExtractFirstJSONObject(data []byte) ([]byte, error) {
 	}
 
 	return jsonBytes, nil
+}
+
+// fixCommonJSONIssues attempts to fix common JSON formatting issues from LLM responses
+func fixCommonJSONIssues(data []byte) []byte {
+	content := string(data)
+
+	// Fix double-escaped quotes in string values
+	// This handles cases like: "evaluation\\\": {\\\"metrics\\\": ..."
+	content = strings.ReplaceAll(content, "\\\"", "\"")
+
+	// Fix escaped backslashes
+	content = strings.ReplaceAll(content, "\\\\", "\\")
+
+	// Fix malformed unicode escapes like \u003c
+	content = strings.ReplaceAll(content, "\\u003c", "<")
+	content = strings.ReplaceAll(content, "\\u003e", ">")
+
+	// Fix trailing commas before closing brackets/braces
+	content = regexp.MustCompile(`,(\s*[}\]])`).ReplaceAllString(content, "$1")
+
+	// Fix missing commas between object properties
+	// Pattern: "value"     "next_key" -> "value", "next_key"
+	content = regexp.MustCompile(`"(\s+)"`).ReplaceAllString(content, `", "$1`)
+
+	// Fix orphaned commas on their own lines
+	// Pattern: "value"\n     ,\n     "key" -> "value",\n     "key"
+	content = regexp.MustCompile(`"(\s+),(\s+)"`).ReplaceAllString(content, `", $1"`)
+
+	// Fix missing commas after closing braces/brackets followed by whitespace and a key
+	// Pattern: }\n     "key" -> },\n     "key"
+	content = regexp.MustCompile(`}(\s+)"`).ReplaceAllString(content, `}, $1"`)
+	content = regexp.MustCompile(`](\s+)"`).ReplaceAllString(content, `], $1"`)
+
+	return []byte(content)
 }
 
 // extractBalancedJSON finds the first complete JSON object using bracket balancing

@@ -1,0 +1,32 @@
+{
+  "id": "multi-array-ops",
+  "domain": "algorithms.arrays",
+  "description": "Merge multiple arrays, remove duplicates, sort, and take top N elements",
+  "input": {
+    "arrays": [
+      [1, 3, 5, 7, 9],
+      [2, 4, 6, 8, 10],
+      [1, 2, 3, 11, 12]
+    ],
+    "top_n": 5
+  },
+  "spec": {
+    "props": {
+      "type": "multi_array_ops",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"arrays\": {\"type\": \"array\", \"items\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}, \"top_n\": {\"type\": \"integer\"}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"merged\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}, \"unique_count\": {\"type\": \"integer\"}, \"top_elements\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "complexity_hint": "decomposable",
+      "sub_tasks": [
+        "merge_arrays",
+        "remove_duplicates",
+        "sort_merged",
+        "take_top_n"
+      ]
+    }
+  },
+  "budget": {
+    "cpu_millis": 20000,
+    "mem_mb": 512,
+    "timeout": "120s"
+  }
+}

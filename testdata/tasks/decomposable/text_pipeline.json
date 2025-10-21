@@ -1,0 +1,27 @@
+{
+  "id": "text-pipeline",
+  "domain": "algorithms.text_processing",
+  "description": "Process text through a pipeline: lowercase → remove punctuation → count words → find most frequent",
+  "input": {
+    "text": "Hello, World! This is a test. Hello again, world!"
+  },
+  "spec": {
+    "props": {
+      "type": "text_pipeline",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"text\": {\"type\": \"string\"}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"processed_text\": {\"type\": \"string\"}, \"word_count\": {\"type\": \"integer\"}, \"most_frequent_word\": {\"type\": \"string\"}, \"word_frequencies\": {\"type\": \"object\"}}}",
+      "complexity_hint": "decomposable",
+      "sub_tasks": [
+        "lowercase_text",
+        "remove_punctuation",
+        "count_words",
+        "find_most_frequent"
+      ]
+    }
+  },
+  "budget": {
+    "cpu_millis": 15000,
+    "mem_mb": 256,
+    "timeout": "90s"
+  }
+}

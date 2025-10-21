@@ -1,0 +1,155 @@
+@startuml Agent Request Sequence Diagram
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 20
+skinparam maxmessagesize 60
+
+title Agent Request Processing Flow
+
+actor "Client Application" as Client
+participant "Router Service" as Router
+participant "Light Worker" as LightWorker
+participant "Heavy Worker" as HeavyWorker
+participant "Knowledge Base (KB)" as KB
+participant "Design Client" as DesignClient
+participant "LLM Router" as LLMRouter
+participant "LLM Provider" as Provider
+participant "AF-DSL Interpreter" as Interpreter
+participant "Test Runner" as TestRunner
+
+== Simple Task Flow (Light Worker Path) ==
+
+Client -> Router: POST /solve\n{task: {id, domain, description, input, spec, budget}}
+activate Router
+
+Router -> Router: Analyze task complexity\nCheck flags & thresholds
+note right: RouteTask()\n- requiresSandbox?\n- maxComplexity > threshold?
+
+Router -> LightWorker: Forward task to Light Worker
+activate LightWorker
+
+LightWorker -> KB: Find existing skills\nfor task domain
+activate KB
+KB --> LightWorker: Return matching skills[]
+deactivate KB
+
+alt Skills found in KB
+    LightWorker -> LightWorker: Execute skill\nwith task input
+    LightWorker --> Router: Return result\n{success: true, output: data}
+else No skills found
+    LightWorker --> Router: Return result\n{success: false, logs: "no_skills"}
+end
+
+deactivate LightWorker
+Router --> Client: Return task result
+deactivate Router
+
+== Complex Task Flow (Heavy Worker Path) ==
+
+Client -> Router: POST /solve\n{task: {id, domain, description, input, spec, budget}}
+activate Router
+
+Router -> Router: Analyze task complexity\nCheck flags & thresholds
+note right: RouteTask()\n- requiresSandbox = true\n- maxComplexity > 5
+
+Router -> HeavyWorker: Forward task to Heavy Worker
+activate HeavyWorker
+
+HeavyWorker -> KB: Find existing skills\nfor task domain
+activate KB
+KB --> HeavyWorker: Return matching skills[]
+deactivate KB
+
+alt Skills found in KB
+    HeavyWorker -> HeavyWorker: Execute skill\nwith task input
+    HeavyWorker --> Router: Return result\n{success: true, output: data}
+else No skills found - Generate new solution
+    HeavyWorker -> HeavyWorker: Build user task JSON\nfrom task specification
+    note right: buildUserTaskJSON()\n- Extract input/output schemas\n- Build examples\n- Set constraints
+
+    HeavyWorker -> DesignClient: Design(ctx, taskJSON)
+    activate DesignClient
+
+    DesignClient -> DesignClient: Create design request\nwith JSON schema validation
+    note right: DesignRequest\n- System prompt\n- User task JSON\n- Response format: json_schema
+
+    DesignClient -> LLMRouter: POST /v1/chat\n{model, messages, response_format}
+    activate LLMRouter
+
+    LLMRouter -> LLMRouter: Select model by strategy\nor explicit model
+    note right: ModelRouter.SelectModel()\n- Tag-based routing\n- Provider selection
+
+    LLMRouter -> Provider: Chat completion request
+    activate Provider
+    Provider --> LLMRouter: AF-DSL code + metadata
+    deactivate Provider
+
+    LLMRouter --> DesignClient: Design response\n{text, usage, model, provider}
+    deactivate LLMRouter
+
+    DesignClient -> DesignClient: Extract & validate JSON\nfrom LLM response
+    note right: ExtractFirstJSONObject()\n- Parse markdown code blocks\n- Fix common JSON issues\n- Validate schema
+
+    DesignClient --> HeavyWorker: HypothesisDesign\n{status, algorithm, code, evaluation, tests}
+    deactivate DesignClient
+
+    HeavyWorker -> HeavyWorker: Validate design\nstructure and format
+    note right: design.Validate()\n- Check required fields\n- Validate AF-DSL syntax
+
+    alt Design validation failed
+        HeavyWorker --> Router: Return result\n{success: false, logs: "validation_failed"}
+    else Design indicates cannot_solve
+        HeavyWorker --> Router: Return result\n{success: false, logs: "design_cannot_solve"}
+    else Design valid - Continue processing
+        HeavyWorker -> HeavyWorker: Convert to hypothesis\nand test cases
+        note right: design.ToHypothesis()\n- Extract AF-DSL code\n- Parse AST if available\n- Build test cases
+
+        HeavyWorker -> HeavyWorker: Generate property tests\nif property plans exist
+        note right: generatePropertyTests()\n- Create random test data\n- Apply property checks
+
+        HeavyWorker -> HeavyWorker: Get appropriate interpreter\nbased on language (af-dsl)
+        note right: getInterpreter("af-dsl")\n- Return AFDSLInterpreter
+
+        HeavyWorker -> TestRunner: Run tests\n(hypothesis, testCases, interpreter)
+        activate TestRunner
+
+        TestRunner -> Interpreter: Execute AF-DSL code\nwith test inputs
+        activate Interpreter
+        Interpreter --> TestRunner: Execution results
+        deactivate Interpreter
+
+        TestRunner --> HeavyWorker: Test metrics\n{pass: bool, metrics: map}
+        deactivate TestRunner
+
+        HeavyWorker -> HeavyWorker: Evaluate fitness score\nagainst pass threshold
+        note right: fitness.Score()\n- Calculate weighted score\n- Check against threshold
+
+        alt Fitness threshold passed
+            HeavyWorker -> Interpreter: Execute solution\nwith actual task input
+            activate Interpreter
+            Interpreter --> HeavyWorker: Task execution result
+            deactivate Interpreter
+
+            alt Execution successful
+                HeavyWorker -> KB: Save hypothesis\nas new skill
+                activate KB
+                KB --> HeavyWorker: Skill saved
+                deactivate KB
+
+                HeavyWorker --> Router: Return result\n{success: true, output: data}
+            else Execution failed
+                HeavyWorker --> Router: Return result\n{success: false, logs: "execution_failed"}
+            end
+        else Fitness threshold not met
+            HeavyWorker --> Router: Return result\n{success: false, logs: "fitness_threshold_not_met"}
+        end
+    end
+end
+
+deactivate HeavyWorker
+Router --> Client: Return task result
+deactivate Router
+
+@enduml

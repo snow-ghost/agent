@@ -1,0 +1,28 @@
+{
+  "id": "sort-and-stats",
+  "domain": "algorithms.data_processing",
+  "description": "Sort an array and compute statistical measures (min, max, mean, median)",
+  "input": {
+    "numbers": [3, 1, 2, 5, 4, 8, 2, 7, 6]
+  },
+  "spec": {
+    "props": {
+      "type": "sort_and_stats",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"sorted\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}, \"min\": {\"type\": \"number\"}, \"max\": {\"type\": \"number\"}, \"mean\": {\"type\": \"number\"}, \"median\": {\"type\": \"number\"}}}",
+      "complexity_hint": "decomposable",
+      "sub_tasks": [
+        "sort_array",
+        "find_minimum",
+        "find_maximum", 
+        "calculate_mean",
+        "calculate_median"
+      ]
+    }
+  },
+  "budget": {
+    "cpu_millis": 20000,
+    "mem_mb": 512,
+    "timeout": "120s"
+  }
+}

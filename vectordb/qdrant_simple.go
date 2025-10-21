@@ -65,7 +65,7 @@ func (q *QdrantVectorStore) ensureCollection(ctx context.Context) error {
 
 	// Check if our collection exists
 	for _, collection := range collections {
-		if collection == q.collection {
+		if collection.Name == q.collection {
 			return nil // Collection already exists
 		}
 	}
@@ -76,14 +76,14 @@ func (q *QdrantVectorStore) ensureCollection(ctx context.Context) error {
 	case "cosine":
 		distance = qdrant.Distance_Cosine
 	case "euclidean":
-		distance = qdrant.Distance_Euclid
+		distance = qdrant.Distance_Euclidean
 	case "dot":
 		distance = qdrant.Distance_Dot
 	default:
 		distance = qdrant.Distance_Cosine // Default to cosine
 	}
 
-	err = q.client.CreateCollection(ctx, &qdrant.CreateCollection{
+	_, err = q.client.CreateCollection(ctx, &qdrant.CreateCollection{
 		CollectionName: q.collection,
 		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
 			Size:     uint64(q.config.Dimension),
@@ -106,10 +106,16 @@ func (q *QdrantVectorStore) Upsert(ctx context.Context, id string, vec []float32
 		payload[k] = v
 	}
 
+	// Convert float32 to float64 for Qdrant
+	vector := make([]float64, len(vec))
+	for i, v := range vec {
+		vector[i] = float64(v)
+	}
+
 	points := []*qdrant.PointStruct{
 		{
 			Id:      qdrant.NewID(id),
-			Vectors: qdrant.NewVectors(vec...),
+			Vectors: qdrant.NewVectors(vector...),
 			Payload: qdrant.NewValueMap(payload),
 		},
 	}
@@ -130,11 +136,18 @@ func (q *QdrantVectorStore) Upsert(ctx context.Context, id string, vec []float32
 func (q *QdrantVectorStore) Search(ctx context.Context, vec []float32, topK int) ([]Hit, error) {
 	start := time.Now()
 
+	// Convert float32 to float64 for Qdrant
+	vector := make([]float64, len(vec))
+	for i, v := range vec {
+		vector[i] = float64(v)
+	}
+
 	searchResult, err := q.client.Query(ctx, &qdrant.QueryPoints{
 		CollectionName: q.collection,
-		Query:          qdrant.NewQuery(vec...),
-		Limit:          qdrant.PtrOf(uint64(topK)),
-		WithPayload:    qdrant.NewWithPayload(true),
+		Query:          qdrant.NewQuery(vector...),
+		Limit:          uint64(topK),
+		WithPayload:    true,
+		WithVector:     false,
 	})
 
 	if err != nil {
@@ -149,8 +162,8 @@ func (q *QdrantVectorStore) Search(ctx context.Context, vec []float32, topK int)
 		// Convert payload back to string map
 		meta := make(map[string]string)
 		if result.Payload != nil {
-			for k, v := range result.Payload {
-				if str := v.GetStringValue(); str != "" {
+			for k, v := range result.Payload.GetMapValue().GetFields() {
+				if str, ok := v.GetStringValue(); ok {
 					meta[k] = str
 				}
 			}
@@ -158,14 +171,14 @@ func (q *QdrantVectorStore) Search(ctx context.Context, vec []float32, topK int)
 
 		hits[i] = Hit{
 			ID:     result.Id.GetUuid(),
-			Score:  float64(result.Score),
+			Score:  result.Score,
 			Meta:   meta,
 			Vector: nil, // Don't include vector in results by default
 		}
 	}
 
 	duration := time.Since(start).Seconds()
-	workermetrics.ObserveRAGSearch(ctx, "qdrant", duration, int64(len(hits)))
+	workermetrics.ObserveRAGSearch(ctx, "qdrant", duration, len(hits))
 
 	return hits, nil
 }
@@ -187,8 +200,8 @@ func (q *QdrantVectorStore) Get(ctx context.Context, id string) ([]float32, map[
 	points, err := q.client.Get(ctx, &qdrant.GetPoints{
 		CollectionName: q.collection,
 		Ids:            []*qdrant.PointId{qdrant.NewID(id)},
-		WithPayload:    qdrant.NewWithPayload(true),
-		WithVectors:    qdrant.NewWithVectors(true),
+		WithPayload:    true,
+		WithVector:     true,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to retrieve vector: %w", err)
@@ -203,19 +216,17 @@ func (q *QdrantVectorStore) Get(ctx context.Context, id string) ([]float32, map[
 	// Convert vector back to float32
 	var vector []float32
 	if point.Vectors != nil {
-		if vectorOutput := point.Vectors.GetVector(); vectorOutput != nil {
-			if dense := vectorOutput.GetDense(); dense != nil {
-				vector = make([]float32, len(dense.Data))
-				copy(vector, dense.Data)
-			}
+		vector = make([]float32, len(point.Vectors.Vector))
+		for i, v := range point.Vectors.Vector {
+			vector[i] = float32(v)
 		}
 	}
 
 	// Convert payload to string map
 	meta := make(map[string]string)
 	if point.Payload != nil {
-		for k, v := range point.Payload {
-			if str := v.GetStringValue(); str != "" {
+		for k, v := range point.Payload.GetMapValue().GetFields() {
+			if str, ok := v.GetStringValue(); ok {
 				meta[k] = str
 			}
 		}
@@ -239,7 +250,7 @@ func (q *QdrantVectorStore) Count(ctx context.Context) (int, error) {
 func (q *QdrantVectorStore) Clear(ctx context.Context) error {
 	// For now, we'll delete the collection and recreate it
 	// This is simpler than trying to delete all points
-	err := q.client.DeleteCollection(ctx, q.collection)
+	_, err := q.client.DeleteCollection(ctx, q.collection)
 	if err != nil {
 		return fmt.Errorf("failed to delete collection: %w", err)
 	}
@@ -282,9 +293,15 @@ func (q *QdrantVectorStore) BatchUpsert(ctx context.Context, points []BatchPoint
 			payload[k] = v
 		}
 
+		// Convert vector
+		vector := make([]float64, len(point.Vector))
+		for j, v := range point.Vector {
+			vector[j] = float64(v)
+		}
+
 		qdrantPoints[i] = &qdrant.PointStruct{
 			Id:      qdrant.NewID(point.ID),
-			Vectors: qdrant.NewVectors(point.Vector...),
+			Vectors: qdrant.NewVectors(vector...),
 			Payload: qdrant.NewValueMap(payload),
 		}
 	}

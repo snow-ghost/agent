@@ -1,0 +1,31 @@
+{
+  "id": "data-validation-pipeline",
+  "domain": "algorithms.data_processing",
+  "description": "Parse JSON data, validate fields, transform values, and aggregate results",
+  "input": {
+    "data": [
+      {"name": "Alice", "age": 25, "score": 85},
+      {"name": "Bob", "age": 30, "score": 92},
+      {"name": "Charlie", "age": 22, "score": 78}
+    ]
+  },
+  "spec": {
+    "props": {
+      "type": "data_validation_pipeline",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"data\": {\"type\": \"array\", \"items\": {\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\"}, \"age\": {\"type\": \"integer\"}, \"score\": {\"type\": \"integer\"}}}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"valid_records\": {\"type\": \"integer\"}, \"average_score\": {\"type\": \"number\"}, \"age_groups\": {\"type\": \"object\"}, \"processed_data\": {\"type\": \"array\"}}}",
+      "complexity_hint": "decomposable",
+      "sub_tasks": [
+        "parse_json_data",
+        "validate_records",
+        "transform_values",
+        "aggregate_statistics"
+      ]
+    }
+  },
+  "budget": {
+    "cpu_millis": 25000,
+    "mem_mb": 512,
+    "timeout": "120s"
+  }
+}

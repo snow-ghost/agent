@@ -1,0 +1,21 @@
+{
+  "id": "fibonacci",
+  "domain": "algorithms.sequences",
+  "description": "Generate the first N numbers in the Fibonacci sequence",
+  "input": {
+    "n": 10
+  },
+  "spec": {
+    "props": {
+      "type": "fibonacci",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"n\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 1000}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"sequence\": {\"type\": \"array\", \"items\": {\"type\": \"integer\"}}}}",
+      "complexity_hint": "complex"
+    }
+  },
+  "budget": {
+    "cpu_millis": 10000,
+    "mem_mb": 256,
+    "timeout": "60s"
+  }
+}

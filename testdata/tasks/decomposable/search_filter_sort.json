@@ -1,0 +1,38 @@
+{
+  "id": "search-filter-sort",
+  "domain": "algorithms.data_processing",
+  "description": "Filter data by criteria, sort results, and paginate output",
+  "input": {
+    "products": [
+      {"name": "Laptop", "price": 999, "category": "electronics", "rating": 4.5},
+      {"name": "Book", "price": 15, "category": "books", "rating": 4.2},
+      {"name": "Phone", "price": 699, "category": "electronics", "rating": 4.7},
+      {"name": "Pen", "price": 2, "category": "office", "rating": 3.8},
+      {"name": "Tablet", "price": 399, "category": "electronics", "rating": 4.3}
+    ],
+    "filter": {
+      "category": "electronics",
+      "min_rating": 4.0
+    },
+    "sort_by": "price",
+    "limit": 3
+  },
+  "spec": {
+    "props": {
+      "type": "search_filter_sort",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"products\": {\"type\": \"array\", \"items\": {\"type\": \"object\"}}, \"filter\": {\"type\": \"object\"}, \"sort_by\": {\"type\": \"string\"}, \"limit\": {\"type\": \"integer\"}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"filtered_count\": {\"type\": \"integer\"}, \"results\": {\"type\": \"array\"}, \"total_pages\": {\"type\": \"integer\"}}}",
+      "complexity_hint": "decomposable",
+      "sub_tasks": [
+        "apply_filters",
+        "sort_results",
+        "paginate_output"
+      ]
+    }
+  },
+  "budget": {
+    "cpu_millis": 20000,
+    "mem_mb": 512,
+    "timeout": "120s"
+  }
+}

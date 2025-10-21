@@ -1,0 +1,21 @@
+{
+  "id": "reverse-array",
+  "domain": "algorithms.arrays",
+  "description": "Reverse the order of elements in an array",
+  "input": {
+    "numbers": [1, 2, 3, 4, 5]
+  },
+  "spec": {
+    "props": {
+      "type": "reverse",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"reversed\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "complexity_hint": "simple"
+    }
+  },
+  "budget": {
+    "cpu_millis": 5000,
+    "mem_mb": 128,
+    "timeout": "30s"
+  }
+}

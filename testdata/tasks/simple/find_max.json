@@ -1,0 +1,21 @@
+{
+  "id": "find-max",
+  "domain": "algorithms.arrays",
+  "description": "Find the maximum value in an array of numbers",
+  "input": {
+    "numbers": [3, 1, 2, 5, 4, 8, 2]
+  },
+  "spec": {
+    "props": {
+      "type": "find_max",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"max\": {\"type\": \"number\"}}}",
+      "complexity_hint": "simple"
+    }
+  },
+  "budget": {
+    "cpu_millis": 5000,
+    "mem_mb": 128,
+    "timeout": "30s"
+  }
+}

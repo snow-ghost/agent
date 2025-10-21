@@ -1,0 +1,21 @@
+{
+  "id": "prime-check",
+  "domain": "algorithms.number_theory",
+  "description": "Check if a number is prime and find all prime factors",
+  "input": {
+    "number": 97
+  },
+  "spec": {
+    "props": {
+      "type": "prime_check",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"number\": {\"type\": \"integer\", \"minimum\": 2, \"maximum\": 1000000}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"is_prime\": {\"type\": \"boolean\"}, \"factors\": {\"type\": \"array\", \"items\": {\"type\": \"integer\"}}}}",
+      "complexity_hint": "complex"
+    }
+  },
+  "budget": {
+    "cpu_millis": 15000,
+    "mem_mb": 256,
+    "timeout": "60s"
+  }
+}

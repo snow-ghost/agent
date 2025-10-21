@@ -258,6 +258,126 @@ test-docker:
 	@LLM_ROUTER_URL=http://localhost:9000 go test -v ./worker/heavy -run "TestHeavySolve_WithRealLLM"
 	@docker-compose -f docker-compose.test.yml down
 
+# Qdrant Management
+qdrant-up:
+	@echo "Starting Qdrant..."
+	docker-compose up -d qdrant
+
+qdrant-down:
+	@echo "Stopping Qdrant..."
+	docker-compose stop qdrant
+
+qdrant-logs:
+	@echo "Showing Qdrant logs..."
+	docker-compose logs -f qdrant
+
+qdrant-stats:
+	@echo "Getting Qdrant statistics..."
+	go run ./cmd/kb-manager -action stats
+
+qdrant-clear:
+	@echo "Clearing Qdrant collection..."
+	go run ./cmd/kb-manager -action clear
+
+qdrant-reindex:
+	@echo "Reindexing artifacts to Qdrant..."
+	go run ./cmd/kb-manager -action reindex -artifacts-dir ./artifacts
+
+qdrant-query:
+	@echo "Querying Qdrant collection..."
+	@if [ -z "$(QUERY)" ]; then \
+		echo "Usage: make qdrant-query QUERY=\"your search query\""; \
+		exit 1; \
+	fi
+	go run ./cmd/kb-manager -action query -query "$(QUERY)"
+
+qdrant-verify:
+	@echo "Verifying Qdrant consistency..."
+	go run ./cmd/kb-manager -action verify -artifacts-dir ./artifacts
+
+# Test Task Execution
+test-simple:
+	@echo "Running simple test tasks..."
+	go run ./cmd/test-suite -dir ./testdata/tasks/simple
+
+test-complex:
+	@echo "Running complex test tasks..."
+	go run ./cmd/test-suite -dir ./testdata/tasks/complex
+
+test-decomposable:
+	@echo "Running decomposable test tasks..."
+	go run ./cmd/test-suite -dir ./testdata/tasks/decomposable
+
+test-all-tasks:
+	@echo "Running all test tasks..."
+	go run ./cmd/test-suite -dir ./testdata/tasks
+
+test-all-tasks-verbose:
+	@echo "Running all test tasks with verbose output..."
+	go run ./cmd/test-suite -dir ./testdata/tasks -verbose
+
+test-all-tasks-report:
+	@echo "Running all test tasks and generating report..."
+	go run ./cmd/test-suite -dir ./testdata/tasks -output test-results.json
+
+# Individual Task Examples
+run-task-sort:
+	@echo "Running sort numbers task..."
+	go run ./cmd/task-runner -task ./testdata/tasks/simple/sort_numbers.json
+
+run-task-fibonacci:
+	@echo "Running fibonacci task..."
+	go run ./cmd/task-runner -task ./testdata/tasks/complex/fibonacci.json
+
+run-task-pipeline:
+	@echo "Running text pipeline task..."
+	go run ./cmd/task-runner -task ./testdata/tasks/decomposable/text_pipeline.json -verbose
+
+run-task-custom:
+	@echo "Running custom task..."
+	@if [ -z "$(TASK)" ]; then \
+		echo "Usage: make run-task-custom TASK=path/to/task.json"; \
+		exit 1; \
+	fi
+	go run ./cmd/task-runner -task $(TASK) -verbose
+
+# Docker Integration Tests
+docker-test-setup:
+	@echo "Setting up Docker test environment..."
+	docker-compose up -d qdrant llmrouter light-worker heavy-worker router
+	@echo "Waiting for services to start..."
+	@sleep 15
+	@echo "Reindexing artifacts..."
+	@make qdrant-reindex
+
+docker-test-run:
+	@echo "Running Docker integration tests..."
+	@make docker-test-setup
+	@make test-all-tasks
+	@make qdrant-stats
+
+docker-test-cleanup:
+	@echo "Cleaning up Docker test environment..."
+	docker-compose down -v
+
+docker-test-full:
+	@echo "Running full Docker test cycle..."
+	@make docker-test-run
+	@make docker-test-cleanup
+
+# Development helpers
+dev-setup:
+	@echo "Setting up development environment..."
+	@make qdrant-up
+	@sleep 5
+	@make qdrant-reindex
+	@echo "Development environment ready!"
+
+dev-clean:
+	@echo "Cleaning development environment..."
+	@make qdrant-clear
+	@make docker-down
+
 # CI pipeline
 ci: deps fmt vet lint test build
 	@echo "CI pipeline completed successfully"

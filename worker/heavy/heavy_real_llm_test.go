@@ -122,7 +122,7 @@ func TestHeavySolve_WithRealLLM(t *testing.T) {
 // TestHeavySolve_WithRealLLM_Complex tests with a more complex task
 func TestHeavySolve_WithRealLLM_Complex(t *testing.T) {
 
-	t.Skip("Skipping complex task test for now")
+	t.Skip("Skipping complex task test for now - LLM generates malformed JSON")
 	ctx := context.Background()
 	kb := &noopKB{}
 	designer := client.NewDesignClientFromEnv()
@@ -160,6 +160,41 @@ func TestHeavySolve_WithRealLLM_Complex(t *testing.T) {
 	}
 
 	t.Logf("Submitting complex task to heavy worker with real LLM...")
+
+	// Test the designer directly to see what AF-DSL code is generated
+	taskJSON := `{
+		"task": {
+			"id": "test-duplicates-real-llm",
+			"domain": "algorithms.arrays",
+			"description": "Find all duplicate elements in an array",
+			"constraints": {
+				"timeout_ms": 5000,
+				"mem_mb": 128,
+				"max_complexity": "O(n)"
+			},
+			"input_schema": "{\"type\": \"object\", \"properties\": {\"numbers\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+			"output_schema": "{\"type\": \"object\", \"properties\": {\"duplicates\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}}}",
+			"examples": []
+		}
+	}`
+
+	hd, rawResponse, err := designer.Design(ctx, taskJSON)
+	if err != nil {
+		t.Logf("Design failed: %v", err)
+		t.Logf("Raw LLM response: %s", string(rawResponse))
+	} else {
+		t.Logf("Design succeeded!")
+		// Convert to hypothesis to get the generated code
+		hypothesis, err := design.ToHypothesis(hd)
+		if err != nil {
+			t.Logf("Failed to convert design to hypothesis: %v", err)
+		} else {
+			t.Logf("Generated AF-DSL code: %s", string(hypothesis.Bytes))
+			if hd.Code.AST != nil {
+				t.Logf("Generated AST: %+v", hd.Code.AST)
+			}
+		}
+	}
 
 	res, err := worker.Solve(ctx, task)
 	if err != nil {

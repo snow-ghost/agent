@@ -1,0 +1,22 @@
+{
+  "id": "binary-search",
+  "domain": "algorithms.search",
+  "description": "Find the index of a target value in a sorted array using binary search",
+  "input": {
+    "sorted_array": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19],
+    "target": 7
+  },
+  "spec": {
+    "props": {
+      "type": "binary_search",
+      "input_schema": "{\"type\": \"object\", \"properties\": {\"sorted_array\": {\"type\": \"array\", \"items\": {\"type\": \"number\"}}, \"target\": {\"type\": \"number\"}}}",
+      "output_schema": "{\"type\": \"object\", \"properties\": {\"index\": {\"type\": \"integer\"}, \"found\": {\"type\": \"boolean\"}}}",
+      "complexity_hint": "complex"
+    }
+  },
+  "budget": {
+    "cpu_millis": 10000,
+    "mem_mb": 256,
+    "timeout": "60s"
+  }
+}
