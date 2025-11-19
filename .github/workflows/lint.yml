@@ -1,0 +1,46 @@
+name: Lint Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.24.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Install dependencies
+      run: |
+        go mod download
+        go mod tidy
+
+    - name: Install linter
+      run: |
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+    - name: Run golangci-lint
+      run: |
+        golangci-lint run
+
+    - name: Run go vet
+      run: |
+        go vet ./...
+
+    - name: Run format check
+      run: |
+        go fmt ./...
+        git diff --exit-code || (echo "Please run 'go fmt ./...' and commit the changes" && exit 1)

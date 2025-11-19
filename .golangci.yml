@@ -1,0 +1,49 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - gofmt
+    - golint
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - structcheck
+    - varcheck
+    - ineffassign
+    - deadcode
+    - typecheck
+    - gosec
+    - unconvert
+    - dupl
+    - goconst
+    - gocyclo
+    - gocritic
+    - misspell
+    - lll
+    - unparam
+    - nakedret
+    - prealloc
+    - scopelint
+    - gochecknoglobals
+    - gochecknoinits
+    - gci
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  lll:
+    line-length: 140
+  golint:
+    min-confidence: 0.8
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/snow-ghost/agent)
+
+issues:
+  exclude-use-default: false

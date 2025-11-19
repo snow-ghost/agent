@@ -1,0 +1,49 @@
+name: Build Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.24.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Install dependencies
+      run: |
+        go mod download
+        go mod tidy
+
+    - name: Build all packages
+      run: |
+        go build ./...
+
+    - name: Build binaries
+      run: |
+        mkdir -p bin
+        go build -o bin/worker ./cmd/worker
+        go build -o bin/router ./cmd/router
+        go build -o bin/kb-indexer ./cmd/kb-indexer
+        go build -o bin/llmrouter ./cmd/llmrouter
+        ls -la bin/
+
+    - name: Verify binaries
+      run: |
+        file bin/worker
+        file bin/router
+        file bin/kb-indexer
+        file bin/llmrouter
