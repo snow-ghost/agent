@@ -167,7 +167,7 @@ jobs:
         done
 
     - name: Upload binaries
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: binaries-${{ matrix.os }}-${{ matrix.arch }}
         path: dist/

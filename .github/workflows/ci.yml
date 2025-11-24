@@ -152,7 +152,7 @@ jobs:
         go build -ldflags="-s -w" -o dist/kb-indexer ./cmd/kb-indexer
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: binaries
         path: dist/
@@ -216,7 +216,7 @@ jobs:
 
     - name: Upload logs
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: docker-logs
         path: docker-compose.logs
